@@ -1,0 +1,90 @@
+name: bid-review-phase1
+
+x-app: &app
+  image: bid-review-app:0.2.0
+  environment: &app-environment
+    BID_DATABASE_URL: mysql+pymysql://bid_user:${MYSQL_PASSWORD:?Run scripts/init_env.py}@mysql:3306/bid_review?charset=utf8mb4
+    BID_REDIS_URL: redis://redis:6379/0
+    BID_STORAGE_PATH: /data/blobs
+    BID_BOOTSTRAP_API_KEY: ${BID_BOOTSTRAP_API_KEY:?Run scripts/init_env.py}
+  volumes:
+    - documents:/data/blobs
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  mysql:
+    image: mysql:8.4@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
+    environment:
+      MYSQL_DATABASE: bid_review
+      MYSQL_USER: bid_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run scripts/init_env.py}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/init_env.py}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -ubid_user -D bid_review -e 'SELECT 1' --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    <<: *app
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    restart: "no"
+
+  bootstrap:
+    <<: *app
+    command: ["python", "-m", "app.cli", "bootstrap"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    <<: *app
+    build: .
+    ports:
+      - "127.0.0.1:18080:8000"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "celery", "-A", "app.worker:celery_app", "worker", "-Q", "parse", "--concurrency=1", "--loglevel=INFO"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  dispatcher:
+    <<: *app
+    command: ["python", "-m", "app.dispatcher"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  mysql_data:
+  redis_data:
+  documents:

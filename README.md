@@ -1,0 +1,100 @@
+# 投标文件审查与资料协同系统
+
+当前版本 **0.2.0**：面向信息化服务公司的投标协作场景，支持文档工程和人工业务闭环。用有出处的要求台账明确本轮审查依据，发现问题后指派整改，由另一人复核，再逐项记录人工决定。样例响应文件为人工构造，未声称已有企业上线或实际客户使用经历。
+
+已实现：项目成员与角色、PDF 上传/不可变修订/幂等、MySQL 任务与 outbox、Redis/Celery 投递、租约恢复和旧 Worker 写入拦截、文字层探针、页码/bbox 来源与原件下载、要求修订/确认/完整基线、冻结正式材料集、问题指派/整改/独立复核、逐项人工报告和审计。
+
+当前为 `review_mode=HUMAN`。解析器 `pdfplumber-probe-v1` 只提取文字层，产物固定 `NEEDS_REVIEW`、`formal_review_ready=false`，表示不能自动审查；人工引用时须回看原件。Docling、DOCX、OCR、RAG/Milvus、LangGraph 模型审查、更正自动影响分析及前端尚未实现。更正目前通过显式新增要求修订和重新发布完整基线处理。
+
+## 接口怎么使用
+
+先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [34 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
+
+顺序：认证/项目分工 → 上传 PDF 并核对原文 → 登记要求 → 确认并发布基线 → 选择正式材料 → 登记问题 → 负责人整改 → 另一人复核 → 逐项审核决定 → 报告。Swagger 的 `Try it out` 可调试，`Schema` 可查看字段中文说明。各 ID 不能混用。
+
+新材料/基线会使旧提交及审核过期；同轮发现新问题也会使该要求的原满足决定失效。没有问题记录不等于检查过，未发布要求修改也会阻止报告显示完成。
+
+`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [本轮实测](docs/phase2-verification.md)。
+
+## 启动
+
+需要 Docker Desktop（Linux 容器）和用于生成本地环境文件的 Python。终端进入本目录：
+
+```powershell
+python scripts/init_env.py
+docker compose up --build -d --wait --wait-timeout 180
+docker compose ps
+```
+
+接口文档：http://127.0.0.1:18080/docs 。点击 Authorize，填入本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY`。凭据每份安装独立生成，不在仓库中提供默认公开密钥。MySQL 与 Redis 仅在 Compose 内部网络开放。
+
+首次启动执行 Alembic 迁移及 owner 初始化。已有 `.env` 不会被覆盖。已有数据库的凭据须与首次建库时一致。
+
+Compose 项目名沿用 `bid-review-phase1`，用于复用升级前的命名卷。其他账号由运维用 `python -m app.cli bootstrap --name ... --key-env ...` 创建：密钥从所指定的环境变量读取，至少24字符。每人使用自己的 API Key，负责人再添加项目角色。
+
+## 验证完整业务流程
+
+```powershell
+docker compose exec -T api python scripts/business_smoke.py --base-url http://localhost:8000
+```
+
+脚本创建构造样本项目与编写/审查账号，通过真实 HTTP、MySQL、Redis/Worker 跑通“2小时要求、4小时响应、修改为2小时、独立复核、最终确认”。四路并发登记同一问题只建一条问题和任务，最后发布新快照验证旧结论失效。运行报告 `docs/business-smoke.json` 不含明文密钥且排除在 Git 外；测试项目保留在本地库中。
+
+## 验证真实样本
+
+样本是 2023 年上海政府采购的 65 页信息化项目招标文件，只用于历史文本和来源定位验证。仓库不附带第三方 PDF，脚本从固定公开来源下载：
+
+```powershell
+docker compose exec api python scripts/fetch_sample.py
+docker compose exec api python scripts/smoke.py --base-url http://localhost:8000
+```
+
+第二条命令会实际创建项目并完成 API → MySQL/outbox → Redis/Celery → 来源查询；验证重复上传不会新建任务，以及原件 hash、页码和返回内容一致。容器内下载样本和报告存于该容器工作目录；需要留存时使用 `docker compose cp` 拷出。原始业务文件和解析产物另有命名卷保存。
+
+本机执行可先创建 Python 3.12 虚拟环境并安装 `requirements.lock`，然后运行同名脚本。Docker 为推荐运行方式；Celery Worker 在 Linux 容器中执行。
+
+## 测试与迁移
+
+```powershell
+docker compose exec api python -m pytest -q
+docker compose exec api python -m alembic current
+docker compose exec api python -m alembic check
+docker compose exec api python scripts/mysql_invariants.py
+```
+
+自动测试使用独立 SQLite 数据库检查业务不变量；真实 MySQL、Redis 和 Worker 另用集成路径验证，不能以 SQLite 单测代替 MySQL 兼容性结论。迁移在 `migrations/versions`，不得通过应用启动时 `create_all` 代替生产迁移。
+
+`docs/phase1-verification.md` 保留第一阶段历史结果，本轮见 `docs/phase2-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
+
+## 目录
+
+```text
+app/main.py          HTTP 接口与项目鉴权
+app/dependencies.py  共用身份认证与请求参数
+app/business_api.py  按业务动作组织的接口
+app/business.py      基线、材料、问题整改、复核与报告规则
+app/business_schemas.py  业务字段与中文说明
+app/services.py      上传幂等及文档版本事务
+app/models.py        核心领域表
+app/jobs.py          领取、租约、结果提交、恢复及 outbox
+app/parsers.py       文字层和 bbox 诊断
+app/worker.py        Celery Worker
+app/dispatcher.py    单实例投递与恢复扫描
+migrations/          Alembic 迁移
+tests/               权限、幂等、版本、任务恢复与引用测试
+scripts/             环境初始化、公开样本下载与端到端验证
+docs/                实测结果与后续任务
+```
+
+## 当前运行约定
+
+- 时间入库使用 UTC；对外界面后续按用户时区转换。
+- v1 只有单实例 dispatcher；并发扩容前需验证批量领取公平性、索引与恢复时延。
+- 原件、解析产物和 source ID 不原位覆盖；新解析器使用新 profile。
+- 技术解析成功与业务判断分开；当前的满足/有问题/不适用均由人明确记录，模型未参与。
+- 本地端口只绑定 127.0.0.1；正式共享部署前配置 HTTPS、组织身份认证和配额。
+- 单机 Compose 只验证进程恢复，不提供高可用和磁盘故障零丢失承诺。
+- 当前无任务转派、问题撤销、要求退休/删除和自动通知；已有任务的负责人须保留 EDITOR 权限。新输入暂按全项目失效，尚无局部影响分析。
+- `.env`、业务文件、运行报告、IDE 配置不入 Git。`python scripts/package_source.py` 可生成排除这些内容的源码包。
+
+停止服务使用 `docker compose stop`，保留命名卷。不要在未备份业务数据时使用带 `-v` 的删除命令。

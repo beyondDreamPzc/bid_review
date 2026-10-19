@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.git
+__pycache__
+.pytest_cache
+data
+*.zip
+*.egg-info
+.idea
+.vscode
+.venv
+*.log
+docs/sample-smoke.json
+docs/mysql-invariants.json
+docs/business-smoke.json

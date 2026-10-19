@@ -1,0 +1,10 @@
+[project]
+name = "bid-review"
+version = "0.2.0"
+description = "Traceable tender requirements, manual review and independently verified remediation"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-p no:cacheprovider"

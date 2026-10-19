@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/
+.coverage
+htmlcov/
+*.egg-info/
+.idea/
+.vscode/
+*.log
+docs/sample-smoke.json
+docs/mysql-invariants.json
+docs/business-smoke.json
