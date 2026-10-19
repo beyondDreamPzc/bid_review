@@ -30,6 +30,7 @@ def mutate(db, user, project_id, key, body, operation, roles, handler):
     # Authentication performed a read. End that snapshot before waiting for the
     # project lock, so MySQL REPEATABLE READ cannot see a pre-lock business state.
     db.commit()
+    db.expire_all()  # Callers may have loaded task/project objects before entering this serialized write.
     project = db.scalar(select(m.Project).where(m.Project.id == project_id)
                         .with_for_update().execution_options(populate_existing=True))
     member = db.get(m.ProjectMember, (project_id, user.id), populate_existing=True)

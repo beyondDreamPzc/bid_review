@@ -274,3 +274,17 @@ class RequirementDecision(Base):
     evidence: Mapped[list] = mapped_column(JSON)
     decided_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DemoWorkspace(Base):
+    """仅供本机产品体验；凭据只允许操作自身隔离的构造数据。"""
+    __tablename__ = "demo_workspaces"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), unique=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    editor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    reviewer_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    context: Mapped[dict] = mapped_column(JSON)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

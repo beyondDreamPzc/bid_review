@@ -1,8 +1,10 @@
 from enum import StrEnum
+from pathlib import Path as FilePath
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Path, Query, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import HttpUrl
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -12,6 +14,7 @@ from app.api_docs import API_DESCRIPTION, DESCRIPTIONS, TAGS, error_responses
 from app.config import get_settings
 from app.dependencies import CurrentUser, DB
 from app.business_api import router as business_router
+from app.demo import router as demo_router
 from app.models import (AuditEvent, Document, DocumentBlock, DocumentRevision, Job,
                         ParseArtifact, Project, ProjectMember, User)
 from app.services import ingest_pdf, project_access
@@ -21,7 +24,7 @@ from app.schemas import (ARTIFACT_ID, DOCUMENT_ID, JOB_ID, PROJECT_ID, REVISION_
                          SourceResponse, UploadResponse)
 from app.storage import BlobStore
 
-app = FastAPI(title="投标文件审查与资料协同系统", version="0.2.0",
+app = FastAPI(title="投标文件审查与资料协同系统", version="0.3.0",
               summary="可追溯的文档版本、人工要求基线、问题整改与独立复核",
               description=API_DESCRIPTION, openapi_tags=TAGS,
               swagger_ui_parameters={"filter": True, "displayRequestDuration": True,
@@ -62,6 +65,8 @@ def ready(db: DB):
         db.execute(select(User.id).limit(1))  # A reachable DB without migrations is not ready.
         db.execute(select(Project.current_baseline_id).limit(1))
         db.execute(text("SELECT id FROM requirement_decisions LIMIT 1"))
+        if get_settings().demo_enabled:
+            db.execute(text("SELECT id FROM demo_workspaces LIMIT 1"))
     except Exception:
         raise HTTPException(503, "Database or schema is unavailable")
     return {"status": "ready", "stage": "human-review-workflow", "formal_review_ready": False}
@@ -256,3 +261,10 @@ def original(revision_id: RevisionPath, db: DB, user: CurrentUser):
 
 
 app.include_router(business_router)
+app.include_router(demo_router)
+app.mount("/assets", StaticFiles(directory=FilePath(__file__).parent / "static"), name="frontend")
+
+
+@app.get("/", include_in_schema=False)
+def demo_home():
+    return FileResponse(FilePath(__file__).parent / "static" / "index.html")

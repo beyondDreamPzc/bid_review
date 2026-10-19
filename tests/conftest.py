@@ -36,6 +36,7 @@ def minimal_pdf(text="Response within 4 hours") -> bytes:
 @pytest.fixture
 def environment(tmp_path, monkeypatch):
     monkeypatch.setenv("BID_STORAGE_PATH", str(tmp_path / "blobs"))
+    monkeypatch.setenv("BID_DEMO_ENABLED", "false")  # Tests must not inherit Compose's local demo setting.
     get_settings.cache_clear()
     engine = make_engine(f"sqlite:///{tmp_path / 'test.db'}")
     Base.metadata.create_all(engine)

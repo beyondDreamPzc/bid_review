@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     job_max_attempts: int = 3
     dispatch_stale_seconds: int = 120
     parser_profile: str = "pdfplumber-probe-v1"
+    demo_enabled: bool = False
 
 
 @lru_cache
