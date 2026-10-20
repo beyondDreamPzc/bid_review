@@ -3,7 +3,9 @@ from pathlib import Path as FilePath
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Path, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.staticfiles import StaticFiles
 from pydantic import HttpUrl
 from sqlalchemy import select, text
@@ -15,6 +17,7 @@ from app.config import get_settings
 from app.dependencies import CurrentUser, DB
 from app.business_api import router as business_router
 from app.demo import router as demo_router
+from app.workbench_api import router as workbench_router
 from app.models import (AuditEvent, Document, DocumentBlock, DocumentRevision, Job,
                         ParseArtifact, Project, ProjectMember, User)
 from app.services import ingest_pdf, project_access
@@ -22,9 +25,10 @@ from app.schemas import (ARTIFACT_ID, DOCUMENT_ID, JOB_ID, PROJECT_ID, REVISION_
                          ArtifactResponse, BlockResponse, JobResponse, LiveResponse,
                          ProjectInput, ProjectResponse, ReadyResponse, RevisionResponse,
                          SourceResponse, UploadResponse)
-from app.storage import BlobStore
+from app.storage import BlobStore, sha256
+from app.models import IdempotencyRecord
 
-app = FastAPI(title="投标文件审查与资料协同系统", version="0.3.0",
+app = FastAPI(title="投标文件审查与资料协同系统", version="0.4.0",
               summary="可追溯的文档版本、人工要求基线、问题整改与独立复核",
               description=API_DESCRIPTION, openapi_tags=TAGS,
               swagger_ui_parameters={"filter": True, "displayRequestDuration": True,
@@ -65,6 +69,7 @@ def ready(db: DB):
         db.execute(select(User.id).limit(1))  # A reachable DB without migrations is not ready.
         db.execute(select(Project.current_baseline_id).limit(1))
         db.execute(text("SELECT id FROM requirement_decisions LIMIT 1"))
+        db.execute(text("SELECT id FROM web_sessions LIMIT 1"))
         if get_settings().demo_enabled:
             db.execute(text("SELECT id FROM demo_workspaces LIMIT 1"))
     except Exception:
@@ -74,10 +79,24 @@ def ready(db: DB):
 
 @app.post("/api/v1/projects", status_code=201, tags=["01 项目管理"], summary="创建一次投标工作的项目空间",
           description=DESCRIPTIONS["create_project"], operation_id="create_project",
-          response_model=ProjectResponse, responses=error_responses(401, 422, examples={422: [
+          response_model=ProjectResponse, responses=error_responses(401, 409, 422, examples={422: [
               {"type": "missing", "loc": ["body", "name"], "msg": "Field required", "input": {}}]}),
           response_description="项目已创建；返回的 id 用作后续 project_id。")
-def create_project(body: ProjectInput, db: DB, user: CurrentUser):
+def create_project(body: ProjectInput, db: DB, user: CurrentUser,
+                   key: Annotated[str | None, Header(alias="Idempotency-Key", min_length=16, max_length=128,
+                       description="可选创建去重键。网页始终提供；同键同内容重试复用原项目，不同内容返回 409。旧客户端可省略。")]=None):
+    scope = f"{user.id}:CREATE_PROJECT"
+    request_hash = sha256(body.name.strip().encode())
+    if key:
+        db.commit()
+        db.scalar(select(User).where(User.id == user.id).with_for_update())
+        prior = db.get(IdempotencyRecord, (scope, key))
+        if prior:
+            if prior.request_hash != request_hash:
+                raise HTTPException(409, "Idempotency key was already used for a different request")
+            result = prior.response
+            db.commit()
+            return result
     project = Project(name=body.name.strip())
     if not project.name:
         raise HTTPException(422, "Project name must not be blank")
@@ -86,8 +105,11 @@ def create_project(body: ProjectInput, db: DB, user: CurrentUser):
     db.add(ProjectMember(project_id=project.id, user_id=user.id, role="OWNER"))
     db.add(AuditEvent(project_id=project.id, actor_id=user.id, action="PROJECT_CREATED",
                       object_id=project.id, details={}))
+    result = {"id": project.id, "name": project.name}
+    if key:
+        db.add(IdempotencyRecord(scope=scope, key=key, request_hash=request_hash, response=result))
     db.commit()
-    return {"id": project.id, "name": project.name}
+    return result
 
 
 @app.get("/api/v1/projects", tags=["01 项目管理"], summary="列出我有权限访问的项目",
@@ -262,9 +284,24 @@ def original(revision_id: RevisionPath, db: DB, user: CurrentUser):
 
 app.include_router(business_router)
 app.include_router(demo_router)
+app.include_router(workbench_router)
 app.mount("/assets", StaticFiles(directory=FilePath(__file__).parent / "static"), name="frontend")
 
 
 @app.get("/", include_in_schema=False)
 def demo_home():
     return FileResponse(FilePath(__file__).parent / "static" / "index.html")
+
+
+@app.get("/workspace", include_in_schema=False)
+def workspace_home():
+    return FileResponse(FilePath(__file__).parent / "static" / "workspace.html")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    if request.url.path == "/api/v1/auth/session":
+        # Pydantic's default error includes the rejected input; never echo a key.
+        return JSONResponse(status_code=422, content={"detail": [
+            {k: error[k] for k in ("type", "loc", "msg")} for error in exc.errors()]})
+    return await request_validation_exception_handler(request, exc)

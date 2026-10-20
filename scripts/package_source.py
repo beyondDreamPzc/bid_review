@@ -10,7 +10,7 @@ for file in root.rglob("*"):
     relative = file.relative_to(root)
     if not file.is_file() or any(part in excluded_directories for part in relative.parts):
         continue
-    if file.name == ".env" or file.suffix in {".pyc", ".zip"}:
+    if (file.name == ".env" or file.name.startswith(".env.") and file.name != ".env.example") or file.suffix in {".pyc", ".zip"}:
         continue
     if file.name in {"sample-smoke.json", "mysql-invariants.json", "business-smoke.json"}:
         continue

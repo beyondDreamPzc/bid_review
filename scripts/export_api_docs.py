@@ -105,7 +105,7 @@ def export():
         assert operation.get("summary") and len(operation.get("description", "")) > 100
         lines.extend([f"## {number}. {operation['summary']}", "", f"`{method.upper()} {path}`", "",
                       operation["description"].strip(), "",
-                      "**认证**：" + ("需要 `X-API-Key`。" if operation.get("security") else "不需要认证。"), ""])
+                      "**认证**：" + ("使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。" if operation.get("security") else "不需要已有会话；登录请求体需要账号访问密钥。" if operation["operationId"] == "login_browser" else "不需要认证；浏览器退出须同源 `Origin`。" if operation["operationId"] == "logout_browser" else "不需要认证。"), ""])
         if operation.get("parameters"):
             lines.extend(["**参数说明**", "", "| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |", "|---|---|---|---|---|---|"])
             for parameter in operation["parameters"]:
@@ -139,6 +139,9 @@ def export():
                 if media_type == "application/pdf":
                     lines.extend(["**成功返回是 PDF 文件字节，没有 JSON 字段。**", ""])
                     continue
+                if media_type == "text/markdown":
+                    lines.extend(["**成功返回是 UTF-8 Markdown 报告文件，没有 JSON 字段。**", ""])
+                    continue
                 shape = resolve(schema)
                 if shape.get("type") == "array":
                     shape = resolve(shape.get("items", {}))
@@ -157,7 +160,7 @@ def export():
         "| `NEEDS_REVIEW` | 当前解析结果都需要人工检查，尚未验证 OCR 和表格语义 |",
         "| `404` | ID 错误、ID 用错类型，或当前身份没有项目权限 |",
         "| `409` | 幂等键内容冲突，或基线/材料/epoch/任务状态变化；刷新并重新核对 |",
-        "| 下载原件链接直接打开得到 `401` | 浏览器地址栏没有发送 X-API-Key；使用带请求头的客户端下载 |",
+        "| 下载原件链接直接打开得到 `401` | 先在本站工作台登录以取得 Cookie，或使用 X-API-Key 客户端；Cookie 过期时重新登录 |",
         "| 列表返回 `[]` | 该身份没有项目，或者页码/offset 没有匹配项；不一定是接口失败 |",
         "| 扫描 PDF 技术任务成功，但文字块为 0 | 没有可提取的文字层；当前未执行 OCR，需检查质量提示 |", "",
         "## 最小 Python 调用例子", "",

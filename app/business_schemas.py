@@ -45,7 +45,7 @@ class MemberResponse(BaseModel):
 
 
 class MeResponse(BaseModel):
-    id: str = Field(description="当前 API Key 对应的用户 ID，不返回密钥或 hash。")
+    id: str = Field(description="当前 API Key 或浏览器会话对应的用户 ID，不返回密钥或 hash。")
     name: str = Field(description="当前用户显示名称。")
 
 

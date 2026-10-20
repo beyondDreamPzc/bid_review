@@ -11,7 +11,9 @@ import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from pathlib import Path
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -49,6 +51,7 @@ def main():
     load_dotenv(root / ".env")
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://localhost:8000")
+    parser.add_argument("--browser-session", action="store_true", help="用不同账号的 Cookie 会话运行完整闭环，验证网页使用的真实身份认证")
     args = parser.parse_args()
     keys = {"owner": os.environ["BID_BOOTSTRAP_API_KEY"],
             "editor": secrets.token_urlsafe(36), "reviewer": secrets.token_urlsafe(36)}
@@ -57,12 +60,20 @@ def main():
         for who in ("editor", "reviewer"):
             db.add(User(name=f"synthetic-{who}", api_key_hash=sha256(keys[who].encode())))
 
-    with httpx.Client(base_url=args.base_url, timeout=30, trust_env=False) as client:
+    with ExitStack() as stack:
+        clients = {who: stack.enter_context(httpx.Client(base_url=args.base_url, timeout=30, trust_env=False)) for who in keys}
+        parsed = urlsplit(args.base_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        if args.browser_session:
+            for who, client in clients.items():
+                login = client.post("/api/v1/auth/session", json={"api_key": keys[who]}, headers={"Origin": origin})
+                assert login.status_code == 200, "Browser login failed"
+                assert keys[who] not in login.text
         def call(method, path, *, who="owner", status=200, key=None, **kwargs):
-            headers = {"X-API-Key": keys[who]}
+            headers = {"Origin": origin} if args.browser_session else {"X-API-Key": keys[who]}
             if method == "POST":
                 headers["Idempotency-Key"] = key or str(uuid.uuid4())
-            response = client.request(method, path, headers=headers, **kwargs)
+            response = clients[who].request(method, path, headers=headers, **kwargs)
             assert response.status_code == status, f"{method} {path}: {response.status_code} {response.text}"
             return response.json()
 
@@ -135,11 +146,18 @@ def main():
             "decision": "CONFIRMED_SATISFIED", "note": "人工逐项核对后确认此要求满足。", "evidence": [corrected["ref"]]}, "reviewer", 201)
         completed = get("/review-report")
         assert completed["manual_review_complete"] and completed["status"] == "REVIEW_COMPLETE"
+        snapshot = get("/workbench")
+        assert snapshot["report"] == completed
+        assert len(next(d for d in snapshot["documents"] if d["id"] == response["upload"]["document_id"])["revisions"]) == 2
+        report_file = clients["owner"].get(prefix + "/review-report/export",
+            headers={} if args.browser_session else {"X-API-Key": keys["owner"]})
+        assert report_file.status_code == 200 and "原件 SHA-256" in report_file.text
         materials(corrected)
         changed = get("/review-report")
         assert not changed["manual_review_complete"] and changed["reviewed_count"] == 0
         assert get("/tasks")[0]["effective_status"] == "NEEDS_RECHECK"
         result = {"database": "mysql", "queue": "redis/celery", "sample_type": "SYNTHETIC", "review_mode": "HUMAN",
+            "authentication": "BROWSER_SESSION" if args.browser_session else "API_KEY",
             "project_id": project, "baseline_id": baseline["id"], "parallel_idempotent_issue_requests": 4,
             "unique_issue_count": 1, "unique_task_count": 1, "response_revision_no": corrected["upload"]["revision_no"],
             "independent_review_verified": True, "task_status_before_input_change": task["status"],
@@ -149,6 +167,11 @@ def main():
         print(json.dumps({name: result[name] for name in ("database", "queue", "sample_type", "parallel_idempotent_issue_requests",
             "unique_issue_count", "unique_task_count", "response_revision_no", "independent_review_verified", "history_preserved")}, ensure_ascii=False))
         print("Completed report: REVIEW_COMPLETE; after publishing another snapshot: NEEDS_RECHECK")
+        if args.browser_session:
+            for client in clients.values():
+                assert client.delete("/api/v1/auth/session", headers={"Origin":origin}).status_code == 200
+                assert client.get("/api/v1/projects").status_code == 401
+            print("Browser-session login, authenticated report download and revocation verified")
 
 
 if __name__ == "__main__":

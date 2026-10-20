@@ -36,7 +36,7 @@ API_DESCRIPTION = """
 - `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。
 - `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。
 
-除健康检查外，所有业务接口都需要 `X-API-Key`。找不到对象和无权访问对象统一返回 **404**。
+项目业务接口需要 `X-API-Key` 或有效浏览器登录 Cookie。网页登录入口为 `/workspace`；Cookie 由登录接口设置，写请求还必须带与本站一致的 `Origin`，不能手工把 API Key 填进 Cookie。健康检查、登录及退出不要求已有会话。找不到对象和无权访问对象统一返回 **404**。
 """
 
 TAGS = [
@@ -54,8 +54,8 @@ TAGS = [
 ]
 
 ERRORS = {
-    401: ("缺少或无效的 API Key。点击 Authorize 填写本地密钥，或者发送 X-API-Key 请求头。", "A valid X-API-Key is required"),
-    403: ("当前成员角色不能执行该动作，或尝试复核自己的整改。具体角色见各接口的使用人说明。", "Project role cannot perform this action"),
+    401: ("缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。", "A valid API key or browser session is required"),
+    403: ("当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。", "Project role cannot perform this action"),
     404: ("对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。", "Project not found"),
     409: ("幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。", "Project inputs changed; refresh workspace and recheck the current sources"),
     413: ("上传字节数超过配置上限，默认 50 MiB（52,428,800 字节）。分拆文件或调整服务配置。", "File exceeds configured upload limit"),
@@ -166,7 +166,7 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 
 **返回**：quote 为提取原文，text_hash 为其 UTF-8 SHA-256；revision_sha256 为原 PDF 字节 hash，二者用途不同。original_url 指向这份修订的原件下载接口。
 
-**查看原件**：下载时仍需要 X-API-Key。浏览器地址栏直接打开 original_url 不会带这个请求头，可能得到 401；可用带认证的客户端获取 PDF，再按 page/bbox 定位。
+**查看原件**：下载时仍需认证。已在本站工作台登录的浏览器会自动附带 Cookie，可直接打开 original_url；未登录浏览器可能得到 401。API 客户端用 X-API-Key 获取 PDF，再按 page/bbox 定位。
 
 **边界**：来源存在只证明文字从哪里提取，尚不表示该文字是满足某条要求的有效证据。""",
     "original": """**用途**：查看或下载指定不可变修订的原始 PDF。适合核对引用是否对应正确版本。

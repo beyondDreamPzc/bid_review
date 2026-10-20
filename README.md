@@ -1,6 +1,19 @@
 # 投标文件审查与资料协同系统
 
-当前版本 **0.3.0**：增加可点击的中文引导式 MVP，面向不熟悉招标业务的体验者。底层支持文档工程和人工业务闭环。样例文件、项目和人物均为人工构造，未声称已有企业上线或实际客户使用经历。
+当前版本 **0.4.0**：在引导式演示之外，新增独立的“我的项目”网页。可以使用自己的 PDF 走通要求整理、正式材料选择、人工审查、整改复核及报告导出。项目仍处于本地单机开发阶段；没有声称已有企业上线或实际客户使用经历。
+
+## 使用自己的项目
+
+打开 **[我的项目](http://127.0.0.1:18080/workspace)**，使用本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 登录初始负责人账号。密钥仅用于登录请求，网页不在本地存储中保存它；后续使用可撤销的 HttpOnly Cookie。详细操作见 [真实项目工作台使用说明](docs/真实项目工作台.md)。
+
+1. 创建项目，在“资料与版本”上传有文字层的招标、响应或证明 PDF；等待后台解析，并打开原件检查。
+2. 在“整理要求”选择招标原文，写出一条能独立核对的要求，保存、确认，再发布全部要求。
+3. 在“资料与版本”明确选择本轮使用的响应修订及用途，发布正式材料集。
+4. 在“本轮审查”逐项阅读双方原文，保存人工判断；发现问题时登记缺口并指派整改人。
+5. 负责人修改实际 PDF，上传修订并发布新版材料，提交整改；另一位实际账号登录后复核。
+6. 整改验收后逐项最终确认，在“检查报告”查看覆盖情况并下载 Markdown。
+
+网页没有演示角色切换。协作账号通过已有 CLI 创建，由负责人在成员页按姓名查找并加入；不能复核自己的整改提交。
 
 ## 先体验，三分钟看懂这个方向
 
@@ -19,17 +32,17 @@ Compose 本机默认开启 `BID_DEMO_ENABLED=true`，普通应用配置默认关
 
 已实现：项目成员与角色、PDF 上传/不可变修订/幂等、MySQL 任务与 outbox、Redis/Celery 投递、租约恢复和旧 Worker 写入拦截、文字层探针、页码/bbox 来源与原件下载、要求修订/确认/完整基线、冻结正式材料集、问题指派/整改/独立复核、逐项人工报告和审计。
 
-当前为 `review_mode=HUMAN`。解析器 `pdfplumber-probe-v1` 只提取文字层，产物固定 `NEEDS_REVIEW`、`formal_review_ready=false`，表示不能自动审查；人工引用时须回看原件。Docling、DOCX、OCR、RAG/Milvus、LangGraph 模型审查和更正自动影响分析尚未实现。前端首版仅覆盖构造样例体验，不提供任意真实项目的文件上传/管理界面。
+当前为 `review_mode=HUMAN`。解析器 `pdfplumber-probe-v1` 只提取文字层，产物固定 `NEEDS_REVIEW`、`formal_review_ready=false`，表示不能自动审查；人工引用时须回看原件。Docling、DOCX、OCR、RAG/Milvus、LangGraph 模型审查和更正自动影响分析尚未实现。
 
 ## 接口怎么使用
 
-先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [34 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
+先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [40 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
 
 顺序：认证/项目分工 → 上传 PDF 并核对原文 → 登记要求 → 确认并发布基线 → 选择正式材料 → 登记问题 → 负责人整改 → 另一人复核 → 逐项审核决定 → 报告。Swagger 的 `Try it out` 可调试，`Schema` 可查看字段中文说明。各 ID 不能混用。
 
 新材料/基线会使旧提交及审核过期；同轮发现新问题也会使该要求的原满足决定失效。没有问题记录不等于检查过，未发布要求修改也会阻止报告显示完成。
 
-`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [本轮实测](docs/phase2-verification.md)。
+`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.4.0 工作台实测](docs/workspace-verification.md)。
 
 ## 启动
 
@@ -79,7 +92,7 @@ docker compose exec api python scripts/mysql_invariants.py
 
 自动测试使用独立 SQLite 数据库检查业务不变量；真实 MySQL、Redis 和 Worker 另用集成路径验证，不能以 SQLite 单测代替 MySQL 兼容性结论。迁移在 `migrations/versions`，不得通过应用启动时 `create_all` 代替生产迁移。
 
-`docs/phase1-verification.md` 保留第一阶段历史结果，本轮见 `docs/phase2-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
+`docs/phase1-verification.md`、`docs/phase2-verification.md` 保留前两阶段历史结果，本轮见 `docs/workspace-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
 
 ## 目录
 
@@ -90,6 +103,8 @@ app/business_api.py  按业务动作组织的接口
 app/business.py      基线、材料、问题整改、复核与报告规则
 app/business_schemas.py  业务字段与中文说明
 app/demo.py          隔离演示会话与业务动作适配
+app/workbench_api.py 实际账号登录、项目聚合读取、成员查找与报告导出
+app/session_auth.py  Cookie 写入同源检查
 app/static/          中文引导页面，原生HTML/CSS/JS，无前端构建依赖
 app/demo_assets/     明确标记的中文PDF构造样本
 app/services.py      上传幂等及文档版本事务

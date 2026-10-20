@@ -16,7 +16,7 @@ WRITE_ERRORS = error_responses(401, 403, 404, 409, 422)
 def doc(scene, actor, behavior, following):
     return (f"**业务场景**：{scene}\n\n**使用人/前置条件**：{actor}\n\n"
             f"**处理与结果**：{behavior}\n\n**下一步**：{following}\n\n"
-            "**调用约定**：所有接口需要 X-API-Key。写操作还需要 Idempotency-Key；网络重试沿用原键和原请求体，"
+            "**调用约定**：所有接口需要 X-API-Key 或已登录的浏览器 Cookie；Cookie 写入还须同源 Origin。写操作还需要 Idempotency-Key；网络重试沿用原键和原请求体，"
             "新业务动作换新键。404 同时表示对象不存在或不属于可访问项目。409 表示版本、状态或幂等冲突，须先刷新核对。当前所有业务判断由人完成。")
 
 

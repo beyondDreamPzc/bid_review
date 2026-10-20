@@ -276,6 +276,16 @@ class RequirementDecision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class WebSession(Base):
+    """浏览器只持有随机令牌，数据库只保存其摘要。"""
+    __tablename__ = "web_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class DemoWorkspace(Base):
     """仅供本机产品体验；凭据只允许操作自身隔离的构造数据。"""
     __tablename__ = "demo_workspaces"
