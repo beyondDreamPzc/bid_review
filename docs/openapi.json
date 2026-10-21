@@ -4,7 +4,7 @@
     "title": "投标文件审查与资料协同系统",
     "summary": "可追溯的文档版本、人工要求基线、问题整改与独立复核",
     "description": "\n本系统当前支持**投标材料工程基础和人工业务闭环**：上传 PDF 保留修订、核对原文、人工整理并确认要求、发布基线和正式材料集、登记问题、指派整改、由另一人复核，再逐项作出审核决定。\n完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`，未接入模型抽取、RAG 或自动审查。\n\n### 第一次使用\n\n1. 点击右上角 **Authorize**，填入项目本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 的值；只填值，不加 `Bearer`。\n2. 创建项目，记下返回的 `id`，它就是 `project_id`。\n3. 上传 PDF，记下 `document_id`、`revision_id`、`job_id`。\n4. 查询任务；`status=SUCCEEDED` 后取得 `artifact_id`。\n5. 查询解析产物和文字块，再用来源接口获取页码、矩形位置和原件地址。\n6. 在“08 要求与基线”登记并确认要求，发布基线；在“09 正式响应材料”明确本轮正式文件。\n7. 在“10 问题与整改”登记冲突并指定负责人；整改后由另一人复核，在“11 人工审查结论”完成逐项确认并查看报告。\n\n### 五种 ID 分别是什么\n\n| 名称 | 含义 | 从哪里取得 |\n|---|---|---|\n| `project_id` | 一次投标工作的资料空间 | 创建/列出项目 |\n| `document_id` | 一份逻辑文档，例如技术响应书；多个修订共用 | 上传新文档 |\n| `revision_id` | 某一次不可变的 PDF 文件版本 | 上传或列出修订 |\n| `job_id` | 后台处理这份文件的任务 | 上传接口 |\n| `artifact_id` | 某修订按某解析配置生成的结果 | 查询成功任务 |\n\n`block_id` 是某个产物内部的文字块编号，必须与其 `artifact_id` 配套使用。示例 ID 只说明格式，实际调用时请替换为接口真实返回的 ID。\n\n### 需要正确理解的状态\n\n- HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。\n- `SUCCEEDED`：文字层提取的技术任务已完成，不表示投标业务满足要求。\n- `NEEDS_REVIEW`：产物需要检查；当前尚未验证表格语义，也没有运行 OCR。\n- `formal_review_ready=false`：文字层探针尚不支持自动审查。人工业务可以引用这些文字块，但必须回看原件；自动要求抽取、Milvus、模型审查和更正影响分析尚未接入。\n- `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。\n- `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。\n\n项目业务接口需要 `X-API-Key` 或有效浏览器登录 Cookie。网页登录入口为 `/workspace`；Cookie 由登录接口设置，写请求还必须带与本站一致的 `Origin`，不能手工把 API Key 填进 Cookie。健康检查、登录及退出不要求已有会话。找不到对象和无权访问对象统一返回 **404**。\n",
-    "version": "0.4.0"
+    "version": "0.5.0"
   },
   "paths": {
     "/health/live": {
@@ -4190,6 +4190,407 @@
           }
         }
       }
+    },
+    "/api/v1/artifacts/{artifact_id}/quality": {
+      "get": {
+        "tags": [
+          "12 解析质量核对"
+        ],
+        "summary": "按页查看解析质量提示和人工核对进度",
+        "description": "**业务场景**：上传 PDF 后，先检查用于整理要求和审查的原文是否明显缺失或乱码。任意项目成员可读。读取冻结解析 JSON 并验证摘要，再按页计算无文字、低文字量、疑似乱码、坐标异常和相邻块重叠提示，展示最近人工核对记录。不会重新解析、修改 block_id 或自动判定表格/阅读顺序正确。没有规则命中也不等于无漏字。下一步打开对应原件，记录页级人工判断；该记录不发布基线、不替代投标业务审查。",
+        "operationId": "get_parse_quality",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。",
+              "title": "Artifact Id"
+            },
+            "description": "成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "A valid API key or browser session is required"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "type": "missing",
+                      "loc": [
+                        "header",
+                        "idempotency-key"
+                      ],
+                      "msg": "Field required"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Stored original is unavailable"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/{artifact_id}/pages/{page}/quality-reviews": {
+      "post": {
+        "tags": [
+          "12 解析质量核对"
+        ],
+        "summary": "回看原件后追加一条逐页质量核对记录",
+        "description": "**业务场景**：编写人或审查人回看某一页原 PDF，说明文字可用、需要重处理或真实空白。仅 OWNER/EDITOR/REVIEWER 可写，READER 只读。携带本页最近版本和所见规则版本，项目锁内复查权限并追加历史；并发意见变化返回409，幂等重试复用原结果。空文字页不能标文字可用，有提取文字的页不能直接确认为空白。新修订或新解析产物不继承旧核对，不改变业务 epoch、基线或最终审核结论；当前也不会自动启动 OCR。",
+        "operationId": "review_parse_page",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。",
+              "title": "Artifact Id"
+            },
+            "description": "成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。"
+          },
+          {
+            "name": "page",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "PDF 实际页序，从1开始，必须位于该产物页数内。",
+              "title": "Page"
+            },
+            "description": "PDF 实际页序，从1开始，必须位于该产物页数内。"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "description": "本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。",
+              "title": "Idempotency-Key"
+            },
+            "description": "本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "A valid API key or browser session is required"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project role cannot perform this action"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project inputs changed; refresh workspace and recheck the current sources"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "type": "missing",
+                      "loc": [
+                        "header",
+                        "idempotency-key"
+                      ],
+                      "msg": "Field required"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Stored original is unavailable"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "12 解析质量核对"
+        ],
+        "summary": "追溯一页历次人工质量核对意见",
+        "description": "**业务场景**：同一页曾被标记需要处理，后来又被确认文字可用，需要知道谁在何时改变了判断。任意项目成员可读，返回该不可变解析产物该页的追加记录，按版本从新到旧，可分页。不会把别的文件修订或别的页的记录混入，也不删除早先意见。网页默认展示最近50条；需要更早记录时客户端可增加 offset。新文件的页码即使相同，也必须重新核对，不继承这里的历史决定。",
+        "operationId": "list_parse_page_reviews",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。",
+              "title": "Artifact Id"
+            },
+            "description": "成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。"
+          },
+          {
+            "name": "page",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "PDF 实际页序，从1开始，必须位于该产物页数内。",
+              "title": "Page"
+            },
+            "description": "PDF 实际页序，从1开始，必须位于该产物页数内。"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "跳过的历史记录条数。",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "跳过的历史记录条数。"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "本次最多返回记录数，最大100。",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "本次最多返回记录数，最大100。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewResponse"
+                  },
+                  "title": "Response List Parse Page Reviews"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "A valid API key or browser session is required"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "type": "missing",
+                      "loc": [
+                        "header",
+                        "idempotency-key"
+                      ],
+                      "msg": "Field required"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4816,6 +5217,57 @@
         ],
         "title": "FileRevision"
       },
+      "Finding": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "可解释规则代码：NO_TEXT、SPARSE_TEXT、SUSPECT_ENCODING、INVALID_BBOX、OVERLAPPING_BLOCKS。"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "INFO",
+              "WARNING"
+            ],
+            "title": "Severity",
+            "description": "INFO 为低文字量提示；WARNING 建议优先回看原件，均不是确定错误。"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "对该规则结果的中文解释。"
+          },
+          "suggestion": {
+            "type": "string",
+            "title": "Suggestion",
+            "description": "建议的人工核对或重新处理方式。"
+          },
+          "affected_block_count": {
+            "type": "integer",
+            "title": "Affected Block Count",
+            "description": "触发规则的文字块数；无文字等页级规则为0。"
+          },
+          "block_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Block Ids",
+            "description": "最多20个触发块 ID，可继续使用来源接口核对。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message",
+          "suggestion",
+          "affected_block_count",
+          "block_ids"
+        ],
+        "title": "Finding"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -5412,6 +5864,65 @@
         ],
         "title": "MemberResponse"
       },
+      "PageResult": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "实际页序，从1开始。"
+          },
+          "width": {
+            "type": "number",
+            "title": "Width",
+            "description": "PDF 页面宽度，单位point。"
+          },
+          "height": {
+            "type": "number",
+            "title": "Height",
+            "description": "PDF 页面高度，单位point。"
+          },
+          "block_count": {
+            "type": "integer",
+            "title": "Block Count",
+            "description": "本页冻结文字块数，不是业务要求数量。"
+          },
+          "character_count": {
+            "type": "integer",
+            "title": "Character Count",
+            "description": "提取文字的非空白字符数，不能据此证明没有漏字。"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Findings",
+            "description": "本页可解释规则提示，空列表只表示这些规则未命中。"
+          },
+          "latest_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "此产物此页的最近人工核对；其他文件修订的记录不会继承。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "width",
+          "height",
+          "block_count",
+          "character_count",
+          "findings",
+          "latest_review"
+        ],
+        "title": "PageResult"
+      },
       "ProjectFile": {
         "properties": {
           "id": {
@@ -5491,6 +6002,104 @@
           "name"
         ],
         "title": "ProjectResponse"
+      },
+      "QualityReport": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id",
+            "description": "解析产物 ID。"
+          },
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id",
+            "description": "原始不可变 PDF 修订 ID。"
+          },
+          "revision_sha256": {
+            "type": "string",
+            "title": "Revision Sha256",
+            "description": "原始 PDF 摘要，用于识别来源。"
+          },
+          "artifact_sha256": {
+            "type": "string",
+            "title": "Artifact Sha256",
+            "description": "冻结解析 JSON 摘要；读取时验证完整性。"
+          },
+          "parser_profile": {
+            "type": "string",
+            "title": "Parser Profile",
+            "description": "原解析配置，不会因诊断重新编号或替换。"
+          },
+          "diagnostic_profile": {
+            "type": "string",
+            "title": "Diagnostic Profile",
+            "description": "本次规则诊断版本，与解析配置独立。"
+          },
+          "original_url": {
+            "type": "string",
+            "title": "Original Url",
+            "description": "认证后打开对应原 PDF 的地址；可附加 #page=N 定位。"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "description": "总页数。"
+          },
+          "warning_page_count": {
+            "type": "integer",
+            "title": "Warning Page Count",
+            "description": "有 WARNING 规则提示的页数；即使人工确认空白也保留原提示。"
+          },
+          "reviewed_page_count": {
+            "type": "integer",
+            "title": "Reviewed Page Count",
+            "description": "有人工核对记录的页数，包含需要重处理的决定。"
+          },
+          "usable_page_count": {
+            "type": "integer",
+            "title": "Usable Page Count",
+            "description": "人工标文字可用或真实空白的页数。不是自动质量通过率。"
+          },
+          "needs_reprocess_page_count": {
+            "type": "integer",
+            "title": "Needs Reprocess Page Count",
+            "description": "最新人工决定为需要重新处理的页数。"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations",
+            "description": "规则能力边界，任何人工核对都不改变当前无自动审查的事实。"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/PageResult"
+            },
+            "type": "array",
+            "title": "Pages",
+            "description": "按页序排列的指标、规则提示和最近人工记录。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "revision_id",
+          "revision_sha256",
+          "artifact_sha256",
+          "parser_profile",
+          "diagnostic_profile",
+          "original_url",
+          "page_count",
+          "warning_page_count",
+          "reviewed_page_count",
+          "usable_page_count",
+          "needs_reprocess_page_count",
+          "limitations",
+          "pages"
+        ],
+        "title": "QualityReport"
       },
       "ReadyResponse": {
         "properties": {
@@ -5946,6 +6555,47 @@
         ],
         "title": "RequirementRevisionInput"
       },
+      "ReviewInput": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "description": "本页当前人工核对记录版本；未核对为0，防止覆盖别人意见。"
+          },
+          "expected_diagnostic_profile": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Expected Diagnostic Profile",
+            "description": "所见诊断规则版本，使用质量报告 diagnostic_profile；变化时返回409要求重看。"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "TEXT_USABLE",
+              "NEEDS_REPROCESS",
+              "BLANK_CONFIRMED"
+            ],
+            "title": "Decision",
+            "description": "原件核对后认为文字可用、需要重新处理、或确认本页真实空白。空文字页不能标文字可用，有文字页不能标空白。"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Note",
+            "description": "人工核对说明；写明原件是否有内容、文字是否有明显遗漏或需怎样处理。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expected_version",
+          "expected_diagnostic_profile",
+          "decision",
+          "note"
+        ],
+        "title": "ReviewInput"
+      },
       "ReviewReportResponse": {
         "properties": {
           "project_id": {
@@ -6043,6 +6693,75 @@
           "requirements"
         ],
         "title": "ReviewReportResponse"
+      },
+      "ReviewResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "不可变人工核对记录 ID。"
+          },
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id",
+            "description": "核对的解析产物 ID。"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "实际页序号。"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "此产物此页内递增的核对记录版本。"
+          },
+          "diagnostic_profile": {
+            "type": "string",
+            "title": "Diagnostic Profile",
+            "description": "操作时所见的诊断规则版本。"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision",
+            "description": "TEXT_USABLE、NEEDS_REPROCESS 或 BLANK_CONFIRMED；人工声明，不代表机器保证。"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "description": "核对说明，历史记录不会被覆盖。"
+          },
+          "reviewed_by": {
+            "type": "string",
+            "title": "Reviewed By",
+            "description": "实际操作用户 ID。"
+          },
+          "reviewer_name": {
+            "type": "string",
+            "title": "Reviewer Name",
+            "description": "当前显示名，用于网页展示核对人。"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "UTC 记录时间。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "artifact_id",
+          "page",
+          "version",
+          "diagnostic_profile",
+          "decision",
+          "note",
+          "reviewed_by",
+          "reviewer_name",
+          "created_at"
+        ],
+        "title": "ReviewResponse"
       },
       "RevisionResponse": {
         "properties": {
@@ -6234,7 +6953,7 @@
           "original_url": {
             "type": "string",
             "title": "Original Url",
-            "description": "下载这个修订原 PDF 的相对接口地址。访问时仍须发送 X-API-Key；浏览器直接点开不会自动附带认证头。",
+            "description": "下载这个修订原 PDF 的相对接口地址。需有效浏览器登录 Cookie 或 X-API-Key 认证。",
             "examples": [
               "/api/v1/revisions/33333333-3333-4333-8333-333333333333/original"
             ]
@@ -6837,6 +7556,10 @@
     }
   },
   "tags": [
+    {
+      "name": "12 解析质量核对",
+      "description": "逐页解释文字层质量提示，回看原件并保留人工核对历史；不代替业务审查。"
+    },
     {
       "name": "01 项目管理",
       "description": "先建项目，再上传该项目的投标材料。不同项目按成员权限隔离。"

@@ -104,4 +104,4 @@ class SourceResponse(BaseModel):
     coordinate_system: Literal["pdf_points_top_left"] = Field(description="坐标系名称：PDF point 为单位，页面左上角为原点。", examples=["pdf_points_top_left"])
     quote: str = Field(description="该来源块的完整提取原文，与文字块列表的 text 对应。", examples=["测试示例：投标文件应在约定截止时间前提交。"])
     text_hash: str = Field(description="quote 的 UTF-8 SHA-256，与同一块的 text_hash 相同。", examples=["a" * 64])
-    original_url: str = Field(description="下载这个修订原 PDF 的相对接口地址。访问时仍须发送 X-API-Key；浏览器直接点开不会自动附带认证头。", examples=[f"/api/v1/revisions/{REVISION_ID}/original"])
+    original_url: str = Field(description="下载这个修订原 PDF 的相对接口地址。需有效浏览器登录 Cookie 或 X-API-Key 认证。", examples=[f"/api/v1/revisions/{REVISION_ID}/original"])

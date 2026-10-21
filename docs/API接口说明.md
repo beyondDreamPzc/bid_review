@@ -1,6 +1,6 @@
 # 投标审查系统：中文接口使用手册
 
-适用版本：0.4.0。由当前应用的 OpenAPI 自动生成。
+适用版本：0.5.0。由当前应用的 OpenAPI 自动生成。
 
 先读 [业务流程与接口](业务流程与接口.md)，理解谁在什么场景调用接口，再查本手册的参数。
 
@@ -107,6 +107,9 @@ flowchart LR
 | GET | `/api/v1/projects/{project_id}/workbench` | 读取真实项目完整工作台 |
 | GET | `/api/v1/projects/{project_id}/member-candidates` | 按姓名查找可加入项目的已有账号 |
 | GET | `/api/v1/projects/{project_id}/review-report/export` | 下载当前人工审查报告 Markdown |
+| GET | `/api/v1/artifacts/{artifact_id}/quality` | 按页查看解析质量提示和人工核对进度 |
+| POST | `/api/v1/artifacts/{artifact_id}/pages/{page}/quality-reviews` | 回看原件后追加一条逐页质量核对记录 |
+| GET | `/api/v1/artifacts/{artifact_id}/pages/{page}/quality-reviews` | 追溯一页历次人工质量核对意见 |
 
 ## 1. 创建一次投标工作的项目空间
 
@@ -846,7 +849,7 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 | `coordinate_system` | string | 坐标系名称：PDF point 为单位，页面左上角为原点。 |
 | `quote` | string | 该来源块的完整提取原文，与文字块列表的 text 对应。 |
 | `text_hash` | string | quote 的 UTF-8 SHA-256，与同一块的 text_hash 相同。 |
-| `original_url` | string | 下载这个修订原 PDF 的相对接口地址。访问时仍须发送 X-API-Key；浏览器直接点开不会自动附带认证头。 |
+| `original_url` | string | 下载这个修订原 PDF 的相对接口地址。需有效浏览器登录 Cookie 或 X-API-Key 认证。 |
 
 **格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
 
@@ -3452,6 +3455,242 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 | 422 | Validation Error |
 
 **成功返回是 UTF-8 Markdown 报告文件，没有 JSON 字段。**
+
+## 41. 按页查看解析质量提示和人工核对进度
+
+`GET /api/v1/artifacts/{artifact_id}/quality`
+
+**业务场景**：上传 PDF 后，先检查用于整理要求和审查的原文是否明显缺失或乱码。任意项目成员可读。读取冻结解析 JSON 并验证摘要，再按页计算无文字、低文字量、疑似乱码、坐标异常和相邻块重叠提示，展示最近人工核对记录。不会重新解析、修改 block_id 或自动判定表格/阅读顺序正确。没有规则命中也不等于无漏字。下一步打开对应原件，记录页级人工判断；该记录不发布基线、不替代投标业务审查。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `artifact_id` | path | 是 | string | — | 成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `artifact_id` | string | 解析产物 ID。 |
+| `revision_id` | string | 原始不可变 PDF 修订 ID。 |
+| `revision_sha256` | string | 原始 PDF 摘要，用于识别来源。 |
+| `artifact_sha256` | string | 冻结解析 JSON 摘要；读取时验证完整性。 |
+| `parser_profile` | string | 原解析配置，不会因诊断重新编号或替换。 |
+| `diagnostic_profile` | string | 本次规则诊断版本，与解析配置独立。 |
+| `original_url` | string | 认证后打开对应原 PDF 的地址；可附加 #page=N 定位。 |
+| `page_count` | integer | 总页数。 |
+| `warning_page_count` | integer | 有 WARNING 规则提示的页数；即使人工确认空白也保留原提示。 |
+| `reviewed_page_count` | integer | 有人工核对记录的页数，包含需要重处理的决定。 |
+| `usable_page_count` | integer | 人工标文字可用或真实空白的页数。不是自动质量通过率。 |
+| `needs_reprocess_page_count` | integer | 最新人工决定为需要重新处理的页数。 |
+| `limitations` | 数组<string> | 规则能力边界，任何人工核对都不改变当前无自动审查的事实。 |
+| `pages` | 数组<object> | 按页序排列的指标、规则提示和最近人工记录。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "artifact_id": "示例",
+  "revision_id": "示例",
+  "revision_sha256": "示例",
+  "artifact_sha256": "示例",
+  "parser_profile": "示例",
+  "diagnostic_profile": "示例",
+  "original_url": "示例",
+  "page_count": 1,
+  "warning_page_count": 1,
+  "reviewed_page_count": 1,
+  "usable_page_count": 1,
+  "needs_reprocess_page_count": 1,
+  "limitations": [
+    "示例"
+  ],
+  "pages": [
+    {
+      "page": 1,
+      "width": 1.0,
+      "height": 1.0,
+      "block_count": 1,
+      "character_count": 1,
+      "findings": [
+        {
+          "code": "示例",
+          "severity": "INFO",
+          "message": "示例",
+          "suggestion": "示例",
+          "affected_block_count": 1,
+          "block_ids": [
+            "示例"
+          ]
+        }
+      ],
+      "latest_review": {
+        "id": "示例",
+        "artifact_id": "示例",
+        "page": 1,
+        "version": 1,
+        "diagnostic_profile": "示例",
+        "decision": "示例",
+        "note": "示例",
+        "reviewed_by": "示例",
+        "reviewer_name": "示例",
+        "created_at": "2026-10-19T09:00:00"
+      }
+    }
+  ]
+}
+```
+
+## 42. 回看原件后追加一条逐页质量核对记录
+
+`POST /api/v1/artifacts/{artifact_id}/pages/{page}/quality-reviews`
+
+**业务场景**：编写人或审查人回看某一页原 PDF，说明文字可用、需要重处理或真实空白。仅 OWNER/EDITOR/REVIEWER 可写，READER 只读。携带本页最近版本和所见规则版本，项目锁内复查权限并追加历史；并发意见变化返回409，幂等重试复用原结果。空文字页不能标文字可用，有提取文字的页不能直接确认为空白。新修订或新解析产物不继承旧核对，不改变业务 epoch、基线或最终审核结论；当前也不会自动启动 OCR。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `artifact_id` | path | 是 | string | — | 成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。 |
+| `page` | path | 是 | integer | 最小=1 | PDF 实际页序，从1开始，必须位于该产物页数内。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `expected_version` | 是 | integer | 最小=0.0 | 本页当前人工核对记录版本；未核对为0，防止覆盖别人意见。 |
+| `expected_diagnostic_profile` | 是 | string | 最长字符数=80 | 所见诊断规则版本，使用质量报告 diagnostic_profile；变化时返回409要求重看。 |
+| `decision` | 是 | string | 可选值=TEXT_USABLE, NEEDS_REPROCESS, BLANK_CONFIRMED | 原件核对后认为文字可用、需要重新处理、或确认本页真实空白。空文字页不能标文字可用，有文字页不能标空白。 |
+| `note` | 是 | string | 最短字符数=1；最长字符数=4000 | 人工核对说明；写明原件是否有内容、文字是否有明显遗漏或需怎样处理。 |
+
+```json
+{
+  "expected_version": 1,
+  "expected_diagnostic_profile": "示例",
+  "decision": "TEXT_USABLE",
+  "note": "示例"
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 201 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 不可变人工核对记录 ID。 |
+| `artifact_id` | string | 核对的解析产物 ID。 |
+| `page` | integer | 实际页序号。 |
+| `version` | integer | 此产物此页内递增的核对记录版本。 |
+| `diagnostic_profile` | string | 操作时所见的诊断规则版本。 |
+| `decision` | string | TEXT_USABLE、NEEDS_REPROCESS 或 BLANK_CONFIRMED；人工声明，不代表机器保证。 |
+| `note` | string | 核对说明，历史记录不会被覆盖。 |
+| `reviewed_by` | string | 实际操作用户 ID。 |
+| `reviewer_name` | string | 当前显示名，用于网页展示核对人。 |
+| `created_at` | string (date-time) | UTC 记录时间。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "artifact_id": "示例",
+  "page": 1,
+  "version": 1,
+  "diagnostic_profile": "示例",
+  "decision": "示例",
+  "note": "示例",
+  "reviewed_by": "示例",
+  "reviewer_name": "示例",
+  "created_at": "2026-10-19T09:00:00"
+}
+```
+
+## 43. 追溯一页历次人工质量核对意见
+
+`GET /api/v1/artifacts/{artifact_id}/pages/{page}/quality-reviews`
+
+**业务场景**：同一页曾被标记需要处理，后来又被确认文字可用，需要知道谁在何时改变了判断。任意项目成员可读，返回该不可变解析产物该页的追加记录，按版本从新到旧，可分页。不会把别的文件修订或别的页的记录混入，也不删除早先意见。网页默认展示最近50条；需要更早记录时客户端可增加 offset。新文件的页码即使相同，也必须重新核对，不继承这里的历史决定。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `artifact_id` | path | 是 | string | — | 成功解析后返回的产物 ID；质量记录绑定此不可变产物，不绑定文档最新版本。 |
+| `page` | path | 是 | integer | 最小=1 | PDF 实际页序，从1开始，必须位于该产物页数内。 |
+| `offset` | query | 否 | integer | 默认=0；最小=0 | 跳过的历史记录条数。 |
+| `limit` | query | 否 | integer | 默认=50；最小=1；最大=100 | 本次最多返回记录数，最大100。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 不可变人工核对记录 ID。 |
+| `artifact_id` | string | 核对的解析产物 ID。 |
+| `page` | integer | 实际页序号。 |
+| `version` | integer | 此产物此页内递增的核对记录版本。 |
+| `diagnostic_profile` | string | 操作时所见的诊断规则版本。 |
+| `decision` | string | TEXT_USABLE、NEEDS_REPROCESS 或 BLANK_CONFIRMED；人工声明，不代表机器保证。 |
+| `note` | string | 核对说明，历史记录不会被覆盖。 |
+| `reviewed_by` | string | 实际操作用户 ID。 |
+| `reviewer_name` | string | 当前显示名，用于网页展示核对人。 |
+| `created_at` | string (date-time) | UTC 记录时间。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+[
+  {
+    "id": "示例",
+    "artifact_id": "示例",
+    "page": 1,
+    "version": 1,
+    "diagnostic_profile": "示例",
+    "decision": "示例",
+    "note": "示例",
+    "reviewed_by": "示例",
+    "reviewer_name": "示例",
+    "created_at": "2026-10-19T09:00:00"
+  }
+]
+```
 
 ## 状态和常见问题速查
 

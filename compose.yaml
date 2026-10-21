@@ -1,7 +1,7 @@
 name: bid-review-phase1
 
 x-app: &app
-  image: bid-review-app:0.4.0
+  image: bid-review-app:0.5.0
   environment: &app-environment
     BID_DATABASE_URL: mysql+pymysql://bid_user:${MYSQL_PASSWORD:?Run scripts/init_env.py}@mysql:3306/bid_review?charset=utf8mb4
     BID_REDIS_URL: redis://redis:6379/0

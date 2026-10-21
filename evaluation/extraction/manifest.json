@@ -1,0 +1,14 @@
+{
+  "dataset_id": "synthetic-text-layer-v1",
+  "description": "同一构造模板的招标/响应与换稿样本，仅验证已标注页码和短句，不代表多模板、表格或扫描件效果。",
+  "documents": [
+    {"id":"tender", "file":"../../app/demo_assets/tender.pdf", "expected_page_count":3,
+      "checkpoints":[{"page":2,"text":"响应时限：接报后应在2小时内响应。"},{"page":2,"text":"培训服务：应提供不少于2次操作培训。"}]},
+    {"id":"response-4h", "file":"../../app/demo_assets/response-4h.pdf", "expected_page_count":3,
+      "checkpoints":[{"page":2,"text":"响应时限：我们承诺接报后在4小时内响应。"},{"page":2,"text":"培训服务：我们承诺提供2次操作培训。"}]},
+    {"id":"response-2h", "file":"../../app/demo_assets/response-2h.pdf", "expected_page_count":3,
+      "checkpoints":[{"page":2,"text":"响应时限：我们承诺接报后在2小时内响应。"}]},
+    {"id":"response-2h-v3", "file":"../../app/demo_assets/response-2h-v3.pdf", "expected_page_count":3,
+      "checkpoints":[{"page":2,"text":"响应时限：我们承诺接报后在2小时内响应。"}]}
+  ]
+}

@@ -276,6 +276,22 @@ class RequirementDecision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class PageQualityReview(Base):
+    """逐页原件核对的追加记录，始终绑定不可变解析产物。"""
+    __tablename__ = "page_quality_reviews"
+    __table_args__ = (UniqueConstraint("artifact_id", "page", "version", name="uq_page_quality_version"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    artifact_id: Mapped[str] = mapped_column(ForeignKey("parse_artifacts.id"), index=True)
+    page: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer)
+    diagnostic_profile: Mapped[str] = mapped_column(String(80))
+    decision: Mapped[str] = mapped_column(String(30))
+    note: Mapped[str] = mapped_column(Text)
+    reviewed_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class WebSession(Base):
     """浏览器只持有随机令牌，数据库只保存其摘要。"""
     __tablename__ = "web_sessions"
