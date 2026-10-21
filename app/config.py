@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     mineru_timeout_seconds: int = Field(default=900,ge=10,le=3600)
     mineru_max_result_bytes: int = Field(default=50*1024*1024,ge=1024,le=200*1024*1024)
     demo_enabled: bool = False
+    retrieval_enabled: bool = False
+    milvus_url: str = "http://milvus:19530"
+    milvus_token: SecretStr = SecretStr("")
     llm_enabled: bool = False
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: SecretStr = SecretStr("")

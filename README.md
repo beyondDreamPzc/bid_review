@@ -1,6 +1,12 @@
 # 投标文件审查与资料协同系统
 
-当前版本 **0.7.0**：PDF解析重构为本地MinerU4.0.12，支持文字PDF及自动OCR，新增已有文件重解析入口，保留历史产物和旧出处。已有要求候选、人工审查、整改复核与报告流程继续可用。项目仍处于本地单机开发阶段。
+当前版本 **0.8.0**：增加本轮正式材料的Milvus中文BM25证据检索，补齐冻结片段、异步索引、版本隔离、失败恢复和原文回链。工作台改为宽屏侧栏、中等横向导航、窄窗口步骤下拉，放大正文并整理上传/版本操作区域。MinerU解析、候选抽取和人工闭环继续可用。当前运行环境为本地单机Docker Compose。
+
+## 正式材料证据检索
+
+在“资料与版本”发布正式响应/附件后，进入“证据检索”构建索引，查询响应时限、培训等关键词，直接查看实际原文页码，再带入人工核对。参考文件及旧材料不会混入本轮结果；换材料后必须新建索引。检索使用真实Milvus2.6.6中文BM25稀疏向量，不依赖云模型密钥。
+
+使用和技术约束见[正式材料检索](docs/正式材料检索.md)，真实验收与界面尺寸记录见[0.8.0验收](docs/retrieval-verification.md)。这一阶段没有稠密语义检索、重排或生成式RAG问答。
 
 ## MinerU PDF解析
 
@@ -46,19 +52,19 @@
 
 Compose 本机默认开启 `BID_DEMO_ENABLED=true`，普通应用配置默认关闭。正式共享部署须关闭此变量；演示 Cookie 不能操作或下载其他项目。所有本机端口仍只绑定127.0.0.1。
 
-已实现：项目成员与角色、PDF 上传/不可变修订/幂等、MySQL 任务与 outbox、Redis/Celery 投递、租约恢复和旧 Worker 写入拦截、MinerU解析和历史探针兼容、页码/bbox 来源与原件下载、要求修订/确认/完整基线、冻结正式材料集、问题指派/整改/独立复核、逐项人工报告和审计。
+已实现：正式材料中文BM25检索/索引重建/版本和原文校验、项目成员与角色、PDF 上传/不可变修订/幂等、MySQL 任务与 outbox、Redis/Celery 投递、租约恢复和旧 Worker 写入拦截、MinerU解析和历史探针兼容、页码/bbox 来源与原件下载、要求修订/确认/完整基线、冻结正式材料集、问题指派/整改/独立复核、逐项人工报告和审计。
 
-当前为 `review_mode=HUMAN`。新解析器为MinerU4.0.12 Flash/auto，历史`pdfplumber-probe-v1`产物仍保留。产物均为`NEEDS_REVIEW`、`formal_review_ready=false`，人工引用须回看原件。DOCX接入、RAG/Milvus、LangGraph模型审查和更正自动影响分析尚未实现。
+当前为 `review_mode=HUMAN`。新解析器为MinerU4.0.12 Flash/auto，历史`pdfplumber-probe-v1`产物仍保留。产物均为`NEEDS_REVIEW`、`formal_review_ready=false`，人工引用须回看原件。DOCX接入、稠密向量/混合召回/重排、生成式RAG、LangGraph模型审查和更正自动影响分析尚未实现。
 
 ## 接口怎么使用
 
-先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [52 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
+先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [55 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
 
 顺序：认证/项目分工 → 上传 PDF 并核对原文 → 登记要求 → 确认并发布基线 → 选择正式材料 → 登记问题 → 负责人整改 → 另一人复核 → 逐项审核决定 → 报告。Swagger 的 `Try it out` 可调试，`Schema` 可查看字段中文说明。各 ID 不能混用。
 
 新材料/基线会使旧提交及审核过期；同轮发现新问题也会使该要求的原满足决定失效。没有问题记录不等于检查过，未发布要求修改也会阻止报告显示完成。
 
-`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.7.0 MinerU实测](docs/mineru-verification.md)，0.6.0见 [候选抽取实测](docs/extraction-verification.md)，历史结果见 [0.5.0 质量检查实测](docs/quality-verification.md) 和 [0.4.0 工作台实测](docs/workspace-verification.md)。
+`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.8.0检索实测](docs/retrieval-verification.md)，解析验证见 [0.7.0 MinerU实测](docs/mineru-verification.md)，0.6.0见 [候选抽取实测](docs/extraction-verification.md)，历史结果见 [0.5.0 质量检查实测](docs/quality-verification.md) 和 [0.4.0 工作台实测](docs/workspace-verification.md)。
 
 ## 启动
 
@@ -70,7 +76,7 @@ docker compose up --build -d --wait --wait-timeout 180
 docker compose ps
 ```
 
-接口文档：http://127.0.0.1:18080/docs 。点击 Authorize，填入本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY`。凭据每份安装独立生成，不在仓库中提供默认公开密钥。MySQL 与 Redis 仅在 Compose 内部网络开放。
+接口文档：http://127.0.0.1:18080/docs 。点击 Authorize，填入本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY`。凭据每份安装独立生成，不在仓库中提供默认公开密钥。MySQL、Redis和Milvus仅在Compose内部网络开放。Milvus使用独立命名卷及官方Standalone嵌入式存储模式。
 
 首次启动执行 Alembic 迁移及 owner 初始化。已有 `.env` 不会被覆盖。已有数据库的凭据须与首次建库时一致。
 

@@ -1,7 +1,7 @@
 name: bid-review-phase1
 
 x-app: &app
-  image: bid-review-app:0.7.0
+  image: bid-review-app:0.8.0
   environment: &app-environment
     BID_DATABASE_URL: mysql+pymysql://bid_user:${MYSQL_PASSWORD:?Run scripts/init_env.py}@mysql:3306/bid_review?charset=utf8mb4
     BID_REDIS_URL: redis://redis:6379/0
@@ -9,6 +9,8 @@ x-app: &app
     BID_BOOTSTRAP_API_KEY: ${BID_BOOTSTRAP_API_KEY:?Run scripts/init_env.py}
     BID_DEMO_ENABLED: ${BID_DEMO_ENABLED:-true}
     BID_PARSER_PROFILE: ${BID_PARSER_PROFILE:-mineru-4.0.12-flash-auto-v1}
+    BID_RETRIEVAL_ENABLED: ${BID_RETRIEVAL_ENABLED:-true}
+    BID_MILVUS_URL: http://milvus:19530
   volumes:
     - documents:/data/blobs
   depends_on:
@@ -89,7 +91,7 @@ services:
 
   worker:
     <<: *app
-    image: bid-review-parser:0.7.0
+    image: bid-review-parser:0.8.0
     build:
       context: .
       target: mineru-worker
@@ -123,8 +125,37 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  retrieval-worker:
+    <<: *app
+    command: ["python", "-m", "celery", "-A", "app.worker:celery_app", "worker", "-Q", "retrieve", "--concurrency=1", "--loglevel=INFO"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      milvus:
+        condition: service_healthy
+
+  milvus:
+    image: milvusdb/milvus:v2.6.6@sha256:38a6ba6378c602bfb187f4f34077f384c160edf1cf329aa22d99fb58b81b2497
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
+    volumes:
+      - milvus_data:/var/lib/milvus
+      - ./config/milvus-embed.yaml:/milvus/configs/embedEtcd.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      start_period: 90s
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
 volumes:
   mysql_data:
   redis_data:
   documents:
   mineru_models:
+  milvus_data:

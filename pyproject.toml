@@ -1,6 +1,6 @@
 [project]
 name = "bid-review"
-version = "0.3.0"
+version = "0.8.0"
 description = "Traceable tender requirements, manual review and independently verified remediation"
 requires-python = ">=3.12"
 

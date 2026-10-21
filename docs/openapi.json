@@ -3,8 +3,8 @@
   "info": {
     "title": "投标文件审查与资料协同系统",
     "summary": "可追溯的文档版本、人工要求基线、问题整改与独立复核",
-    "description": "\n本系统当前支持**投标材料工程基础和人工业务闭环**：上传 PDF 保留修订、核对原文、人工整理并确认要求、发布基线和正式材料集、登记问题、指派整改、由另一人复核，再逐项作出审核决定。\n完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`；可选云模型只生成要求候选，人工采纳后仍是待确认草稿。模型默认关闭，RAG 和自动审查尚未接入。\n\n### 第一次使用\n\n1. 点击右上角 **Authorize**，填入项目本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 的值；只填值，不加 `Bearer`。\n2. 创建项目，记下返回的 `id`，它就是 `project_id`。\n3. 上传 PDF，记下 `document_id`、`revision_id`、`job_id`。\n4. 查询任务；`status=SUCCEEDED` 后取得 `artifact_id`。\n5. 查询解析产物和文字块，再用来源接口获取页码、矩形位置和原件地址。\n   可选：在“12 解析质量核对”确认所选页文字可用，配置模型后通过“13 AI要求候选”异步生成建议，再人工编辑采纳为草稿。未配置模型仍可手工整理。\n6. 在“08 要求与基线”登记并确认要求，发布基线；在“09 正式响应材料”明确本轮正式文件。\n7. 在“10 问题与整改”登记冲突并指定负责人；整改后由另一人复核，在“11 人工审查结论”完成逐项确认并查看报告。\n\n### 五种 ID 分别是什么\n\n| 名称 | 含义 | 从哪里取得 |\n|---|---|---|\n| `project_id` | 一次投标工作的资料空间 | 创建/列出项目 |\n| `document_id` | 一份逻辑文档，例如技术响应书；多个修订共用 | 上传新文档 |\n| `revision_id` | 某一次不可变的 PDF 文件版本 | 上传或列出修订 |\n| `job_id` | 后台处理这份文件的任务 | 上传接口 |\n| `artifact_id` | 某修订按某解析配置生成的结果 | 查询成功任务 |\n\n`block_id` 是某个产物内部的文字块编号，必须与其 `artifact_id` 配套使用。示例 ID 只说明格式，实际调用时请替换为接口真实返回的 ID。\n\n### 需要正确理解的状态\n\n- HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。\n- `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。\n- `NEEDS_REVIEW`：产物需要人工检查；MinerU 是否运行 OCR 由实际解析模式决定，不能据此证明没有漏字或表格语义正确。\n- `formal_review_ready=false`：解析结果尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。\n- `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。\n- `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。\n\n项目业务接口需要 `X-API-Key` 或有效浏览器登录 Cookie。网页登录入口为 `/workspace`；Cookie 由登录接口设置，写请求还必须带与本站一致的 `Origin`，不能手工把 API Key 填进 Cookie。健康检查、登录及退出不要求已有会话。找不到对象和无权访问对象统一返回 **404**。\n",
-    "version": "0.7.0"
+    "description": "\n本系统当前支持**投标材料工程基础和人工业务闭环**：上传 PDF 保留修订、核对原文、人工整理并确认要求、发布基线和正式材料集、登记问题、指派整改、由另一人复核，再逐项作出审核决定。\n完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`；可选云模型只生成要求候选，人工采纳后仍是待确认草稿。模型默认关闭；正式材料支持Milvus中文BM25证据检索，语义向量、生成式RAG问答和自动审查尚未接入。\n\n### 第一次使用\n\n1. 点击右上角 **Authorize**，填入项目本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 的值；只填值，不加 `Bearer`。\n2. 创建项目，记下返回的 `id`，它就是 `project_id`。\n3. 上传 PDF，记下 `document_id`、`revision_id`、`job_id`。\n4. 查询任务；`status=SUCCEEDED` 后取得 `artifact_id`。\n5. 查询解析产物和文字块，再用来源接口获取页码、矩形位置和原件地址。\n   可选：在“12 解析质量核对”确认所选页文字可用，配置模型后通过“13 AI要求候选”异步生成建议，再人工编辑采纳为草稿。未配置模型仍可手工整理。\n6. 在“08 要求与基线”登记并确认要求，发布基线；在“09 正式响应材料”明确本轮正式文件。\n7. 在“10 问题与整改”登记冲突并指定负责人；整改后由另一人复核，在“11 人工审查结论”完成逐项确认并查看报告。\n\n### 五种 ID 分别是什么\n\n| 名称 | 含义 | 从哪里取得 |\n|---|---|---|\n| `project_id` | 一次投标工作的资料空间 | 创建/列出项目 |\n| `document_id` | 一份逻辑文档，例如技术响应书；多个修订共用 | 上传新文档 |\n| `revision_id` | 某一次不可变的 PDF 文件版本 | 上传或列出修订 |\n| `job_id` | 后台处理这份文件的任务 | 上传接口 |\n| `artifact_id` | 某修订按某解析配置生成的结果 | 查询成功任务 |\n\n`block_id` 是某个产物内部的文字块编号，必须与其 `artifact_id` 配套使用。示例 ID 只说明格式，实际调用时请替换为接口真实返回的 ID。\n\n### 需要正确理解的状态\n\n- HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。\n- `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。\n- `NEEDS_REVIEW`：产物需要人工检查；MinerU 是否运行 OCR 由实际解析模式决定，不能据此证明没有漏字或表格语义正确。\n- `formal_review_ready=false`：解析结果尚不支持自动审查。人工业务、正式材料检索和可选要求候选抽取可以引用文字块，但必须回看原件；模型审查和更正影响分析尚未接入。\n- `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。\n- `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。\n\n项目业务接口需要 `X-API-Key` 或有效浏览器登录 Cookie。网页登录入口为 `/workspace`；Cookie 由登录接口设置，写请求还必须带与本站一致的 `Origin`，不能手工把 API Key 填进 Cookie。健康检查、登录及退出不要求已有会话。找不到对象和无权访问对象统一返回 **404**。\n",
+    "version": "0.8.0"
   },
   "paths": {
     "/health/live": {
@@ -5794,6 +5794,365 @@
           }
         }
       }
+    },
+    "/api/v1/projects/{project_id}/retrieval": {
+      "get": {
+        "tags": [
+          "14 正式材料检索"
+        ],
+        "summary": "查看当前正式材料集的索引状态",
+        "description": "**业务场景**：进入证据检索页面时，明确当前搜的是第几套正式材料、是否已建好索引。所有项目成员可读。该接口只读取MySQL任务事实，不探测Milvus健康；成功构建后的服务故障会在实际查询时报告503。",
+        "operationId": "material_retrieval_status",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "要查询的项目ID。每次操作重新检查项目成员权限。",
+              "title": "Project Id"
+            },
+            "description": "要查询的项目ID。每次操作重新检查项目成员权限。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "A valid API key or browser session is required"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/retrieval/indexes": {
+      "post": {
+        "tags": [
+          "14 正式材料检索"
+        ],
+        "summary": "为当前正式材料构建可追溯检索索引",
+        "description": "**业务场景**：负责人选定正式响应与附件后，让团队能搜索本轮响应证据。仅OWNER/EDITOR；必须带幂等键。项目行锁下冻结文档/修订/解析配置/原文块，最多10000片段；每块按1200字符、120字符重叠切分，绝不跨页或跨块拼接。排除仅供参考材料。后台异步写Milvus，全部完成且租约有效才发布检索代次；相同材料和配置复用任务，可明确失败重试或成功重建。材料变更后不会沿用旧索引。",
+        "operationId": "build_material_index",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "要查询的项目ID。每次操作重新检查项目成员权限。",
+              "title": "Project Id"
+            },
+            "description": "要查询的项目ID。每次操作重新检查项目成员权限。"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "description": "本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。",
+              "title": "Idempotency-Key"
+            },
+            "description": "本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "A valid API key or browser session is required"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project role cannot perform this action"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project inputs changed; refresh workspace and recheck the current sources"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "type": "missing",
+                      "loc": [
+                        "header",
+                        "idempotency-key"
+                      ],
+                      "msg": "Field required"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Stored original is unavailable"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/retrieval/search": {
+      "post": {
+        "tags": [
+          "14 正式材料检索"
+        ],
+        "summary": "查找当前正式材料里的原文证据",
+        "description": "**业务场景**：核对“2小时响应”等要求时，定位响应书承诺在哪一页。所有项目成员可查询，正文不发送云模型。Milvus中文分词与BM25稀疏向量检索；服务端强制项目及已发布代次过滤，返回结果再从MySQL按片段ID取回并校验原文。查询期间换材料、重建索引或移除成员时拒绝返回旧结果。分数仅表示相关性，最终是否满足要求由人工判断；无命中不等于未响应。此查询不修改业务状态，无需幂等键。",
+        "operationId": "search_material_evidence",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "要查询的项目ID。每次操作重新检查项目成员权限。",
+              "title": "Project Id"
+            },
+            "description": "要查询的项目ID。每次操作重新检查项目成员权限。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "A valid API key or browser session is required"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project inputs changed; refresh workspace and recheck the current sources"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "type": "missing",
+                      "loc": [
+                        "header",
+                        "idempotency-key"
+                      ],
+                      "msg": "Field required"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Stored original is unavailable"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6763,6 +7122,97 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "Hit": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id",
+            "description": "MySQL不可变片段ID。结果正文从MySQL取回并校验，不相信外部索引中的正文。"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "BM25相关性排序分数，不是概率、置信度或满足要求的结论。"
+          },
+          "quote": {
+            "type": "string",
+            "title": "Quote",
+            "description": "未改写的原文片段，最多1200字符。数字、条件和措辞均保留。"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "original_url": {
+            "type": "string",
+            "title": "Original Url",
+            "description": "经过权限检查的原件接口地址，带PDF实际页码定位片段。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "score",
+          "quote",
+          "source",
+          "original_url"
+        ],
+        "title": "Hit"
+      },
+      "IndexInput": {
+        "properties": {
+          "expected_material_set_id": {
+            "type": "string",
+            "maxLength": 36,
+            "minLength": 36,
+            "title": "Expected Material Set Id",
+            "description": "页面上已发布的正式材料集ID；与当前不一致返回409，防止误建旧版本。"
+          },
+          "retry_failed": {
+            "type": "boolean",
+            "title": "Retry Failed",
+            "description": "明确重试失败任务。活动任务始终复用，不重复入队。",
+            "default": false
+          },
+          "rebuild": {
+            "type": "boolean",
+            "title": "Rebuild",
+            "description": "明确重建成功索引，例如Milvus数据丢失。重建完成前本轮检索不可用，保留来源快照。",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_material_set_id"
+        ],
+        "title": "IndexInput"
+      },
+      "IndexResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "MySQL冻结索引记录ID，绑定一个正式材料集及一个检索配置。"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id",
+            "description": "后台构建任务ID，通过后台任务接口查看状态；202不代表可以检索。"
+          },
+          "reused": {
+            "type": "boolean",
+            "title": "Reused",
+            "description": "是否复用已存在的本轮索引任务。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "reused"
+        ],
+        "title": "IndexResponse"
       },
       "IssueInput": {
         "properties": {
@@ -8529,6 +8979,80 @@
         ],
         "title": "RunResponse"
       },
+      "SearchInput": {
+        "properties": {
+          "expected_material_set_id": {
+            "type": "string",
+            "maxLength": 36,
+            "minLength": 36,
+            "title": "Expected Material Set Id",
+            "description": "当前页面采用的正式材料集ID；查询前后都检查，版本变化则409。"
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Query",
+            "description": "待定位的关键词或条款，例如“故障响应时限”；采用中文分词BM25召回，不是模型问答。"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "description": "最多返回多少个不同原文块。无匹配返回空数组，不编造答案。",
+            "default": 5
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_material_set_id",
+          "query"
+        ],
+        "title": "SearchInput"
+      },
+      "SearchResponse": {
+        "properties": {
+          "material_set_id": {
+            "type": "string",
+            "title": "Material Set Id",
+            "description": "本次实际检索的正式材料集。"
+          },
+          "index_id": {
+            "type": "string",
+            "title": "Index Id",
+            "description": "完整构建后发布的索引快照ID。"
+          },
+          "profile": {
+            "type": "string",
+            "title": "Profile",
+            "description": "冻结的分块、分词和稀疏检索算法配置。"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query",
+            "description": "去掉首尾空白后的查询。"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/Hit"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "按相关性排列、按原文块去重的结果。空数组表示没有召回，不能据此认定响应缺失。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "material_set_id",
+          "index_id",
+          "profile",
+          "query",
+          "results"
+        ],
+        "title": "SearchResponse"
+      },
       "SessionResponse": {
         "properties": {
           "user": {
@@ -8555,6 +9079,101 @@
           "expires_at"
         ],
         "title": "SessionResponse"
+      },
+      "Source": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "title": "Artifact Id",
+            "description": "冻结解析产物ID。与block_id一起可用于现有证据选择接口。"
+          },
+          "artifact_sha256": {
+            "type": "string",
+            "title": "Artifact Sha256",
+            "description": "冻结解析JSON摘要。"
+          },
+          "block_id": {
+            "type": "string",
+            "title": "Block Id",
+            "description": "产物内的原始文字块ID，可能包含多个检索片段。"
+          },
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id",
+            "description": "对应不可变PDF修订ID。"
+          },
+          "revision_sha256": {
+            "type": "string",
+            "title": "Revision Sha256",
+            "description": "原始PDF的SHA256摘要。"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id",
+            "description": "逻辑文档ID。"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "索引构建时冻结的文档名称。"
+          },
+          "parser_profile": {
+            "type": "string",
+            "title": "Parser Profile",
+            "description": "材料采用的解析配置，重解析不会自动替换。"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "description": "原PDF实际页码，从1开始。"
+          },
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bbox",
+            "description": "整个原文块的PDF点矩形，左上角原点；不是片段或词语的精确坐标。"
+          },
+          "text_hash": {
+            "type": "string",
+            "title": "Text Hash",
+            "description": "整个原文块的UTF8文本摘要。"
+          },
+          "submission_role": {
+            "type": "string",
+            "title": "Submission Role",
+            "description": "FORMAL_RESPONSE正式响应或FORMAL_ATTACHMENT正式附件；排除REFERENCE。"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start",
+            "description": "片段在原文块中的Python字符起始位置，从0开始；不是字节位置。"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End",
+            "description": "片段在原文块中的字符结束位置，不包含该位置。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "artifact_sha256",
+          "block_id",
+          "revision_id",
+          "revision_sha256",
+          "document_id",
+          "title",
+          "parser_profile",
+          "page",
+          "bbox",
+          "text_hash",
+          "submission_role",
+          "start",
+          "end"
+        ],
+        "title": "Source"
       },
       "SourceReference": {
         "properties": {
@@ -8685,6 +9304,103 @@
           "original_url"
         ],
         "title": "SourceResponse"
+      },
+      "StatusResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "当前安装是否启用检索。"
+          },
+          "material_set_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material Set Id",
+            "description": "当前正式材料集ID，尚未发布时为空。"
+          },
+          "material_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material Version",
+            "description": "当前正式材料集的业务版本号。"
+          },
+          "profile": {
+            "type": "string",
+            "title": "Profile",
+            "description": "当前检索配置。"
+          },
+          "index_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Id",
+            "description": "本轮索引ID；尚未创建为空。"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id",
+            "description": "本轮构建任务ID。"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "DISABLED、NOT_BUILT，或任务QUEUED/RUNNING/RETRY_WAIT/SUCCEEDED/FAILED。"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count",
+            "description": "本轮冻结的片段数量，不能代表文字完整性。"
+          },
+          "error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Detail",
+            "description": "安全的错误提示，不包含文档内容或连接密钥。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "material_set_id",
+          "material_version",
+          "profile",
+          "index_id",
+          "job_id",
+          "status",
+          "chunk_count",
+          "error_detail"
+        ],
+        "title": "StatusResponse"
       },
       "SubmissionResponse": {
         "properties": {
@@ -9268,6 +9984,10 @@
     }
   },
   "tags": [
+    {
+      "name": "14 正式材料检索",
+      "description": "冻结本轮正式响应和附件，异步构建Milvus中文BM25索引，带版本与页码找回原文；不生成合规结论。"
+    },
     {
       "name": "13 AI要求候选",
       "description": "已核对页面的异步模型候选抽取、任务恢复及人工采纳；只创建待确认草稿。"

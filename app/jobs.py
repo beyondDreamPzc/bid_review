@@ -111,6 +111,10 @@ def run_job(factory, job_id: str, settings: Settings) -> dict:
     with factory() as db:
         job=db.get(Job,job_id)
         extraction=job is not None and job.kind=="REQUIREMENT_EXTRACTION"
+        indexing=job is not None and job.kind=="MATERIAL_INDEX"
+    if indexing:
+        from app.retrieval import run_index
+        return run_index(factory,job_id,settings)
     if extraction:
         from app.extraction_jobs import run_extraction
         return run_extraction(factory,job_id,settings)

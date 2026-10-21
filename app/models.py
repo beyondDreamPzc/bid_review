@@ -324,6 +324,29 @@ class PageQualityReview(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class RetrievalIndex(Base):
+    """MySQL publishes a complete Milvus generation; partial attempts are never searchable."""
+    __tablename__ = "retrieval_indexes"
+    __table_args__ = (UniqueConstraint("material_set_id", "profile", name="uq_retrieval_material_profile"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    material_set_id: Mapped[str] = mapped_column(ForeignKey("material_sets.id"))
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), unique=True)
+    profile: Mapped[str] = mapped_column(String(100))
+    chunk_count: Mapped[int] = mapped_column(Integer)
+    published_token: Mapped[int | None] = mapped_column(Integer)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class RetrievalChunk(Base):
+    __tablename__ = "retrieval_chunks"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    index_id: Mapped[str] = mapped_column(ForeignKey("retrieval_indexes.id"), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    source: Mapped[dict] = mapped_column(JSON)
+
+
 class WebSession(Base):
     """浏览器只持有随机令牌，数据库只保存其摘要。"""
     __tablename__ = "web_sessions"
