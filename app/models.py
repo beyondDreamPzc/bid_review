@@ -276,6 +276,38 @@ class RequirementDecision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class ExtractionRun(Base):
+    __tablename__ = "extraction_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    artifact_id: Mapped[str] = mapped_column(ForeignKey("parse_artifacts.id"), index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), unique=True)
+    input_hash: Mapped[str] = mapped_column(String(64))
+    page_reviews: Mapped[list] = mapped_column(JSON)
+    batches: Mapped[list] = mapped_column(JSON)
+    model_config_snapshot: Mapped[dict] = mapped_column(JSON)
+    prompt_profile: Mapped[str] = mapped_column(String(80))
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class RequirementCandidate(Base):
+    __tablename__ = "requirement_candidates"
+    __table_args__ = (UniqueConstraint("run_id", "fingerprint", name="uq_candidate_fingerprint"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    run_id: Mapped[str] = mapped_column(ForeignKey("extraction_runs.id"), index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    proposed: Mapped[dict] = mapped_column(JSON)
+    sources: Mapped[list] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    requirement_id: Mapped[str | None] = mapped_column(ForeignKey("requirements.id"))
+    review: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class PageQualityReview(Base):
     """逐页原件核对的追加记录，始终绑定不可变解析产物。"""
     __tablename__ = "page_quality_reviews"

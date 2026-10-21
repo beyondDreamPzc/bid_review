@@ -65,13 +65,13 @@ class RevisionResponse(BaseModel):
 
 
 class JobResponse(BaseModel):
-    id: str = Field(description="任务 ID，对应上传接口返回的 job_id。", examples=[JOB_ID])
-    status: str = Field(description="QUEUED 排队；RUNNING 处理中；RETRY_WAIT 等待自动重试；SUCCEEDED 本次技术处理完成；FAILED 最终失败。SUCCEEDED 不表示投标满足要求。", examples=["SUCCEEDED"])
+    id: str = Field(description="执行任务 ID，对应上传或要求抽取接口返回的 job_id。", examples=[JOB_ID])
+    status: str = Field(description="QUEUED 排队；RUNNING 处理中；RETRY_WAIT 等待自动重试；SUCCEEDED 本次技术处理完成；FAILED 最终失败；CANCELLED 抽取任务已取消。SUCCEEDED 不表示投标满足要求。", examples=["SUCCEEDED"])
     attempt: int = Field(description="Worker 实际领取任务的次数。排队尚未执行时为 0，首次执行为 1；不是当前进度百分比。", ge=0, examples=[1])
-    artifact_id: str | None = Field(description="成功后生成的解析产物 ID。尚未成功时通常为 null；拿到后查询解析结果和文字块。", examples=[ARTIFACT_ID])
-    error_code: str | None = Field(description="最近错误代码：PDF_REJECTED 文件不可处理；PROCESSING_ERROR 处理异常；LEASE_EXPIRED Worker 租约过期。无错误或成功后为 null。", examples=[None])
+    artifact_id: str | None = Field(description="PDF解析成功后的产物 ID；要求抽取任务使用专门的 extraction-runs 接口查看候选，此字段可以为空。", examples=[ARTIFACT_ID])
+    error_code: str | None = Field(description="最近错误代码：PDF_REJECTED 文件不可处理；PROCESSING_ERROR 解析异常；LEASE_EXPIRED 租约过期；MODEL_* 或 EXTRACTION_* 表示候选抽取错误，具体看抽取任务接口。无错误或成功后为 null。", examples=[None])
     error_detail: str | None = Field(description="可用于定位失败原因的简短信息。不会返回完整文档、密钥或服务器存储路径。", examples=[None])
-    formal_review_ready: Literal[False] = Field(description="当前固定为 false：任务只做文字层探针，尚不具备自动审查能力；人工引用时须核对原件。", examples=[False])
+    formal_review_ready: Literal[False] = Field(description="当前固定为 false：解析只提取文字层，模型只建议要求候选，均不具备自动审查能力；人工引用时须核对原件。", examples=[False])
 
 
 class ArtifactResponse(BaseModel):

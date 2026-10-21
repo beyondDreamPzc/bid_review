@@ -45,7 +45,8 @@ def ingest_pdf(db: Session, store: BlobStore, user: User, project_id: str,
             DocumentRevision.document_id == document_id,
             DocumentRevision.sha256 == content_hash).with_for_update())
         if prior_revision:
-            job = db.scalar(select(Job).where(Job.revision_id == prior_revision.id))
+            job = db.scalar(select(Job).where(Job.revision_id == prior_revision.id, Job.kind == "PDF_TEXT_PROBE")
+                            .order_by(Job.created_at.desc(), Job.id).limit(1))
             result = {"document_id": document.id, "revision_id": prior_revision.id,
                       "revision_no": prior_revision.revision_no, "job_id": job.id,
                       "sha256": content_hash, "reused": True}

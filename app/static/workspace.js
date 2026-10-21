@@ -99,10 +99,11 @@ function fileList() {
 }
 function render() {
   if (!data) return; head(); pickerSequence++;
-  const w = data.workspace, sections = [["files","01 资料与版本"],["quality","解析质量"],["requirements","02 整理要求"],["review","03 本轮审查"],["tasks","04 整改复核"],["report","05 检查报告"],["members","成员"]];
-  root.innerHTML = `<div class="heading"><div><div class="eyebrow">我的项目 / ${esc(labels[w.my_role])}</div><h1>${esc(w.name)}</h1><p>要求基线：${data.baseline?`第 ${data.baseline.version} 版`:"未发布"}　·　正式材料：${data.material_set?`第 ${data.material_set.version} 套`:"未选择"}</p></div><button class="small" data-action="refresh">刷新项目</button></div><nav class="nav" aria-label="项目步骤">${sections.map(([id,label])=>`<button data-tab="${id}" class="${tab===id?"active":""}" ${tab===id?'aria-current="page"':""}>${label}</button>`).join("")}</nav>${w.pending_requirement_changes?`<div class="hint warning">要求有尚未发布的变化。请先确认最新录入内容，再发布要求基线；当前报告仍按已发布版本核对。</div>`:""}<div id="section">${({files:filesView,quality:qualityView,requirements:requirementsView,review:reviewView,tasks:tasksView,report:reportView,members:membersView}[tab])()}</div>`;
+  const w = data.workspace, sections = [["files","01 资料与版本"],["quality","解析质量"],["ai","AI 要求候选"],["requirements","02 整理要求"],["review","03 本轮审查"],["tasks","04 整改复核"],["report","05 检查报告"],["members","成员"]];
+  root.innerHTML = `<div class="heading"><div><div class="eyebrow">我的项目 / ${esc(labels[w.my_role])}</div><h1>${esc(w.name)}</h1><p>要求基线：${data.baseline?`第 ${data.baseline.version} 版`:"未发布"}　·　正式材料：${data.material_set?`第 ${data.material_set.version} 套`:"未选择"}</p></div><button class="small" data-action="refresh">刷新项目</button></div><nav class="nav" aria-label="项目步骤">${sections.map(([id,label])=>`<button data-tab="${id}" class="${tab===id?"active":""}" ${tab===id?'aria-current="page"':""}>${label}</button>`).join("")}</nav>${w.pending_requirement_changes?`<div class="hint warning">要求有尚未发布的变化。请先确认最新录入内容，再发布要求基线；当前报告仍按已发布版本核对。</div>`:""}<div id="section">${({files:filesView,quality:qualityView,ai:extractionView,requirements:requirementsView,review:reviewView,tasks:tasksView,report:reportView,members:membersView}[tab])()}</div>`;
   if ($("#source-picker")) loadPicker().catch(e=>notice(explain(e),true));
   if (tab === "quality") loadQualityView();
+  if (tab === "ai") loadExtractionView();
   if (busy) root.querySelectorAll("button").forEach(b=>{b.dataset.wasDisabled=String(b.disabled); b.disabled=true;});
 }
 function filesView() {

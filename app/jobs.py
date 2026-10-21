@@ -102,6 +102,12 @@ def record_failure(factory, attempt: Attempt, settings: Settings, error: Excepti
 
 
 def run_job(factory, job_id: str, settings: Settings) -> dict:
+    with factory() as db:
+        job=db.get(Job,job_id)
+        extraction=job is not None and job.kind=="REQUIREMENT_EXTRACTION"
+    if extraction:
+        from app.extraction_jobs import run_extraction
+        return run_extraction(factory,job_id,settings)
     attempt = claim_job(factory, job_id, settings)
     if attempt is None:
         return {"status": "IGNORED"}
@@ -143,7 +149,7 @@ def recover_jobs(factory, settings: Settings) -> int:
                 job.status = "FAILED" if job.attempt >= settings.job_max_attempts else "RETRY_WAIT"
                 job.error_code, job.error_detail = "LEASE_EXPIRED", "Worker lease expired"
                 job.next_attempt_at = now
-                if job.status == "FAILED":
+                if job.status == "FAILED" and job.kind == "PDF_TEXT_PROBE":
                     db.get(DocumentRevision, job.revision_id).status = "PARSE_FAILED"
             if job.status == "RETRY_WAIT" and job.next_attempt_at <= now:
                 job.status = "QUEUED"

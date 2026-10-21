@@ -120,7 +120,8 @@ def workbench(project_id: ProjectID, db: DB, user: CurrentUser, response: Respon
     for doc in db.scalars(select(m.Document).where(m.Document.project_id == project_id).order_by(m.Document.created_at, m.Document.id)):
         revisions = []
         for rev in db.scalars(select(m.DocumentRevision).where(m.DocumentRevision.document_id == doc.id).order_by(m.DocumentRevision.revision_no.desc())):
-            job = db.scalar(select(m.Job).where(m.Job.revision_id == rev.id).order_by(m.Job.created_at.desc(), m.Job.id).limit(1))
+            job = db.scalar(select(m.Job).where(m.Job.revision_id == rev.id, m.Job.kind == "PDF_TEXT_PROBE")
+                            .order_by(m.Job.created_at.desc(), m.Job.id).limit(1))
             artifact = db.get(m.ParseArtifact, job.artifact_id) if job and job.artifact_id else None
             revisions.append({"id": rev.id, "revision_no": rev.revision_no, "created_at": rev.created_at,
                 "byte_size": rev.byte_size, "status": rev.status, "job_id": job.id if job else None,

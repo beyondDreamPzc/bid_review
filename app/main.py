@@ -19,6 +19,7 @@ from app.business_api import router as business_router
 from app.demo import router as demo_router
 from app.workbench_api import router as workbench_router
 from app.quality_api import router as quality_router
+from app.extraction_api import router as extraction_router
 from app.models import (AuditEvent, Document, DocumentBlock, DocumentRevision, Job,
                         ParseArtifact, Project, ProjectMember, User)
 from app.services import ingest_pdf, project_access
@@ -29,7 +30,7 @@ from app.schemas import (ARTIFACT_ID, DOCUMENT_ID, JOB_ID, PROJECT_ID, REVISION_
 from app.storage import BlobStore, sha256
 from app.models import IdempotencyRecord
 
-app = FastAPI(title="投标文件审查与资料协同系统", version="0.5.0",
+app = FastAPI(title="投标文件审查与资料协同系统", version="0.6.0",
               summary="可追溯的文档版本、人工要求基线、问题整改与独立复核",
               description=API_DESCRIPTION, openapi_tags=TAGS,
               swagger_ui_parameters={"filter": True, "displayRequestDuration": True,
@@ -72,6 +73,7 @@ def ready(db: DB):
         db.execute(text("SELECT id FROM requirement_decisions LIMIT 1"))
         db.execute(text("SELECT id FROM web_sessions LIMIT 1"))
         db.execute(text("SELECT id FROM page_quality_reviews LIMIT 1"))
+        db.execute(text("SELECT id FROM extraction_runs LIMIT 1"))
         if get_settings().demo_enabled:
             db.execute(text("SELECT id FROM demo_workspaces LIMIT 1"))
     except Exception:
@@ -288,6 +290,7 @@ app.include_router(business_router)
 app.include_router(demo_router)
 app.include_router(workbench_router)
 app.include_router(quality_router)
+app.include_router(extraction_router)
 app.mount("/assets", StaticFiles(directory=FilePath(__file__).parent / "static"), name="frontend")
 
 

@@ -1,6 +1,12 @@
 # 投标文件审查与资料协同系统
 
-当前版本 **0.5.0**：新增逐页解析质量检查、人工核对历史与可复现的提取检查点评测。已有“我的项目”网页可以使用自己的 PDF 走通要求整理、正式材料选择、人工审查、整改复核及报告导出。项目仍处于本地单机开发阶段；没有声称已有企业上线或实际客户使用经历。
+当前版本 **0.6.0**：新增可配置云模型的要求候选抽取，支持后台分批、失败恢复、出处校验，以及人工编辑后采纳为待确认草稿。已有“我的项目”网页可以使用自己的 PDF 走通质量核对、要求整理、正式材料选择、人工审查、整改复核及报告导出。项目仍处于本地单机开发阶段；没有声称已有企业上线或实际客户使用经历。
+
+## AI 要求候选
+
+进入项目的“AI 要求候选”，选择最新招标/更正文件中已人工核对文字可用的页面，确认模型处理目的地后生成建议。逐条回看原文、编辑并采纳，再到“整理要求”确认和发布基线。模型不会自动确认要求或判定投标响应满足。
+
+**模型默认关闭，当前未配置真实云模型。** 已验证 HTTP 契约、队列和人工采纳流程，合成测试服务不代表真实模型效果。配置变量、业务场景、8个新增接口和复现步骤见 [AI 要求候选抽取](docs/AI要求候选抽取.md)，结果见 [0.6.0 验收记录](docs/extraction-verification.md)。
 
 ## 解析质量检查
 
@@ -40,13 +46,13 @@ Compose 本机默认开启 `BID_DEMO_ENABLED=true`，普通应用配置默认关
 
 ## 接口怎么使用
 
-先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [43 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
+先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [51 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
 
 顺序：认证/项目分工 → 上传 PDF 并核对原文 → 登记要求 → 确认并发布基线 → 选择正式材料 → 登记问题 → 负责人整改 → 另一人复核 → 逐项审核决定 → 报告。Swagger 的 `Try it out` 可调试，`Schema` 可查看字段中文说明。各 ID 不能混用。
 
 新材料/基线会使旧提交及审核过期；同轮发现新问题也会使该要求的原满足决定失效。没有问题记录不等于检查过，未发布要求修改也会阻止报告显示完成。
 
-`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.5.0 质量检查实测](docs/quality-verification.md)，0.4.0 结果见 [工作台实测](docs/workspace-verification.md)。
+`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.6.0 候选抽取实测](docs/extraction-verification.md)，历史结果见 [0.5.0 质量检查实测](docs/quality-verification.md) 和 [0.4.0 工作台实测](docs/workspace-verification.md)。
 
 ## 启动
 
@@ -96,7 +102,7 @@ docker compose exec api python scripts/mysql_invariants.py
 
 自动测试使用独立 SQLite 数据库检查业务不变量；真实 MySQL、Redis 和 Worker 另用集成路径验证，不能以 SQLite 单测代替 MySQL 兼容性结论。迁移在 `migrations/versions`，不得通过应用启动时 `create_all` 代替生产迁移。
 
-`docs/phase1-verification.md`、`docs/phase2-verification.md` 保留前两阶段历史结果，本轮见 `docs/workspace-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
+`docs/phase1-verification.md`、`docs/phase2-verification.md` 保留前两阶段历史结果，本轮见 `docs/extraction-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
 
 ## 目录
 
@@ -111,6 +117,10 @@ app/workbench_api.py 实际账号登录、项目聚合读取、成员查找与�
 app/session_auth.py  Cookie 写入同源检查
 app/quality.py       冻结文字层的逐页可解释诊断
 app/quality_api.py   质量报告及追加的人工核对历史
+app/extraction_api.py     候选抽取、恢复和人工采纳的业务接口
+app/extraction_service.py 冻结输入、质量意见和来源一致性检查
+app/extraction_jobs.py    独立extract队列、租约保护与批次检查点
+app/extraction_model.py   可配置HTTP模型适配与本地结构/引用校验
 app/static/          中文引导页面，原生HTML/CSS/JS，无前端构建依赖
 app/demo_assets/     明确标记的中文PDF构造样本
 app/services.py      上传幂等及文档版本事务
@@ -130,7 +140,7 @@ docs/                实测结果与后续任务
 - 时间入库使用 UTC；对外界面后续按用户时区转换。
 - v1 只有单实例 dispatcher；并发扩容前需验证批量领取公平性、索引与恢复时延。
 - 原件、解析产物和 source ID 不原位覆盖；新解析器使用新 profile。
-- 技术解析成功与业务判断分开；当前的满足/有问题/不适用均由人明确记录，模型未参与。
+- 技术解析、候选建议与业务判断分开；满足/有问题/不适用均由人明确记录，模型只可辅助整理要求候选。
 - 本地端口只绑定 127.0.0.1；正式共享部署前配置 HTTPS、组织身份认证和配额。
 - 单机 Compose 只验证进程恢复，不提供高可用和磁盘故障零丢失承诺。
 - 当前无任务转派、问题撤销、要求退休/删除和自动通知；已有任务的负责人须保留 EDITOR 权限。新输入暂按全项目失效，尚无局部影响分析。

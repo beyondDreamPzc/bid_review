@@ -1,13 +1,13 @@
 # 投标审查系统：中文接口使用手册
 
-适用版本：0.5.0。由当前应用的 OpenAPI 自动生成。
+适用版本：0.6.0。由当前应用的 OpenAPI 自动生成。
 
 先读 [业务流程与接口](业务流程与接口.md)，理解谁在什么场景调用接口，再查本手册的参数。
 
 在线调试：[Swagger](http://127.0.0.1:18080/docs)；机器可读规范：[OpenAPI JSON](openapi.json)。
 
 本系统当前支持**投标材料工程基础和人工业务闭环**：上传 PDF 保留修订、核对原文、人工整理并确认要求、发布基线和正式材料集、登记问题、指派整改、由另一人复核，再逐项作出审核决定。
-完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`，未接入模型抽取、RAG 或自动审查。
+完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`；可选云模型只生成要求候选，人工采纳后仍是待确认草稿。模型默认关闭，RAG 和自动审查尚未接入。
 
 ### 第一次使用
 
@@ -16,6 +16,7 @@
 3. 上传 PDF，记下 `document_id`、`revision_id`、`job_id`。
 4. 查询任务；`status=SUCCEEDED` 后取得 `artifact_id`。
 5. 查询解析产物和文字块，再用来源接口获取页码、矩形位置和原件地址。
+   可选：在“12 解析质量核对”确认所选页文字可用，配置模型后通过“13 AI要求候选”异步生成建议，再人工编辑采纳为草稿。未配置模型仍可手工整理。
 6. 在“08 要求与基线”登记并确认要求，发布基线；在“09 正式响应材料”明确本轮正式文件。
 7. 在“10 问题与整改”登记冲突并指定负责人；整改后由另一人复核，在“11 人工审查结论”完成逐项确认并查看报告。
 
@@ -34,9 +35,9 @@
 ### 需要正确理解的状态
 
 - HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。
-- `SUCCEEDED`：文字层提取的技术任务已完成，不表示投标业务满足要求。
+- `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。
 - `NEEDS_REVIEW`：产物需要检查；当前尚未验证表格语义，也没有运行 OCR。
-- `formal_review_ready=false`：文字层探针尚不支持自动审查。人工业务可以引用这些文字块，但必须回看原件；自动要求抽取、Milvus、模型审查和更正影响分析尚未接入。
+- `formal_review_ready=false`：文字层探针尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。
 - `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。
 - `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。
 
@@ -110,6 +111,14 @@ flowchart LR
 | GET | `/api/v1/artifacts/{artifact_id}/quality` | 按页查看解析质量提示和人工核对进度 |
 | POST | `/api/v1/artifacts/{artifact_id}/pages/{page}/quality-reviews` | 回看原件后追加一条逐页质量核对记录 |
 | GET | `/api/v1/artifacts/{artifact_id}/pages/{page}/quality-reviews` | 追溯一页历次人工质量核对意见 |
+| GET | `/api/v1/extraction/config` | 查看模型抽取是否配置及原文处理目的地 |
+| POST | `/api/v1/projects/{project_id}/extraction-runs` | 从已核对的招标页面发起要求候选抽取 |
+| GET | `/api/v1/projects/{project_id}/extraction-runs` | 查看项目最近的候选抽取任务 |
+| GET | `/api/v1/projects/{project_id}/extraction-runs/{run_id}` | 查询单个要求抽取任务的状态与批次进度 |
+| POST | `/api/v1/projects/{project_id}/extraction-runs/{run_id}/retry` | 明确重试失败的抽取任务并保留完成批次 |
+| POST | `/api/v1/projects/{project_id}/extraction-runs/{run_id}/cancel` | 取消活动抽取任务并阻止后续候选发布 |
+| GET | `/api/v1/projects/{project_id}/requirement-candidates` | 分页阅读模型候选、出处与人工处理状态 |
+| POST | `/api/v1/projects/{project_id}/requirement-candidates/{candidate_id}/decisions` | 人工修改并采纳候选为要求草稿，或说明原因忽略 |
 
 ## 1. 创建一次投标工作的项目空间
 
@@ -405,7 +414,7 @@ flowchart LR
 | `requirement_count` | integer | 已录入逻辑要求数。 |
 | `issue_count` | integer | 历史登记的问题总数，不等于当前未解决数。 |
 | `pending_requirement_changes` | boolean | 存在未纳入当前基线的新要求/新修订；需确认并重新发布基线。 |
-| `review_mode` | string | 当前为人工业务流程，尚无模型自动抽取/审查。 |
+| `review_mode` | string | 最终判断仍由人工完成；可选模型仅建议要求候选，不自动确认要求或审查响应。 |
 
 **格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
 
@@ -656,13 +665,13 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `id` | string | 任务 ID，对应上传接口返回的 job_id。 |
-| `status` | string | QUEUED 排队；RUNNING 处理中；RETRY_WAIT 等待自动重试；SUCCEEDED 本次技术处理完成；FAILED 最终失败。SUCCEEDED 不表示投标满足要求。 |
+| `id` | string | 执行任务 ID，对应上传或要求抽取接口返回的 job_id。 |
+| `status` | string | QUEUED 排队；RUNNING 处理中；RETRY_WAIT 等待自动重试；SUCCEEDED 本次技术处理完成；FAILED 最终失败；CANCELLED 抽取任务已取消。SUCCEEDED 不表示投标满足要求。 |
 | `attempt` | integer | Worker 实际领取任务的次数。排队尚未执行时为 0，首次执行为 1；不是当前进度百分比。 |
-| `artifact_id` | string / null | 成功后生成的解析产物 ID。尚未成功时通常为 null；拿到后查询解析结果和文字块。 |
-| `error_code` | string / null | 最近错误代码：PDF_REJECTED 文件不可处理；PROCESSING_ERROR 处理异常；LEASE_EXPIRED Worker 租约过期。无错误或成功后为 null。 |
+| `artifact_id` | string / null | PDF解析成功后的产物 ID；要求抽取任务使用专门的 extraction-runs 接口查看候选，此字段可以为空。 |
+| `error_code` | string / null | 最近错误代码：PDF_REJECTED 文件不可处理；PROCESSING_ERROR 解析异常；LEASE_EXPIRED 租约过期；MODEL_* 或 EXTRACTION_* 表示候选抽取错误，具体看抽取任务接口。无错误或成功后为 null。 |
 | `error_detail` | string / null | 可用于定位失败原因的简短信息。不会返回完整文档、密钥或服务器存储路径。 |
-| `formal_review_ready` | boolean | 当前固定为 false：任务只做文字层探针，尚不具备自动审查能力；人工引用时须核对原件。 |
+| `formal_review_ready` | boolean | 当前固定为 false：解析只提取文字层，模型只建议要求候选，均不具备自动审查能力；人工引用时须核对原件。 |
 
 **格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
 
@@ -3690,6 +3699,652 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
     "created_at": "2026-10-19T09:00:00"
   }
 ]
+```
+
+## 44. 查看模型抽取是否配置及原文处理目的地
+
+`GET /api/v1/extraction/config`
+
+**业务场景**：开始抽取前，使用人确认已配置服务、模型及原文发送目的地。只返回非敏感状态；配置齐备不代表模型效果已验证。 **下一步**：管理员通过本地环境配置，使用人再明确选择可发送页面；无配置时保留人工整理路径。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `configured` | boolean | 服务已启用且地址、模型、密钥齐备；不代表云模型已实际调用验证。 |
+| `provider_origin` | string / null | 处理目的地的协议和主机，不包含密钥或查询参数。 |
+| `model` | string / null | 运维配置的模型名称；不在网页选择任意外部地址。 |
+| `config_fingerprint` | string / null | 非敏感配置摘要，创建任务时回传，避免界面确认后模型目的地被改变。 |
+| `reason` | string | 中文配置说明，无密钥明文。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "configured": false,
+  "provider_origin": "示例",
+  "model": "示例",
+  "config_fingerprint": "示例",
+  "reason": "示例"
+}
+```
+
+## 45. 从已核对的招标页面发起要求候选抽取
+
+`POST /api/v1/projects/{project_id}/extraction-runs`
+
+**业务场景**：OWNER/EDITOR选择最新招标/更正产物及最多10个已标记文字可用的页面，并明确同意发送到已配置服务。冻结输入、质量意见及模型配置，登记任务与outbox，不在请求内调用模型。超量明确拒绝而非截断。 **下一步**：查询任务进度；全部批次通过结构和引用检查后，才发布待人工处理的候选。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `artifact_id` | 是 | string | — | 最新招标或更正 PDF 修订的解析产物 ID。 |
+| `pages` | 是 | 数组<integer> | 最少项数=1；最多项数=10 | 明确选择1至10个实际页序；每页须有人标记 TEXT_USABLE，不能重复。单次原文最多48000字符、8批。 |
+| `expected_config_fingerprint` | 是 | string | 最短字符数=64；最长字符数=64 | 配置接口返回的当前摘要；配置变化须重新确认。 |
+| `acknowledge_external_processing` | 是 | boolean | — | 明确同意将所选页面的提取原文发送给页面展示的已配置模型服务；必须为true。 |
+
+```json
+{
+  "artifact_id": "示例",
+  "pages": [
+    1
+  ],
+  "expected_config_fingerprint": "示例",
+  "acknowledge_external_processing": true
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 202 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 抽取业务任务 ID。 |
+| `artifact_id` | string | 固定输入解析产物 ID。 |
+| `job_id` | string | MySQL/outbox 对应的执行任务 ID。 |
+| `status` | string | QUEUED/RUNNING/RETRY_WAIT/SUCCEEDED/FAILED/CANCELLED；成功只表示候选生成完成。 |
+| `attempt` | integer | Worker 领取次数，手工重试后重新计数。 |
+| `pages` | 数组<integer> | 所选实际页序。 |
+| `batch_count` | integer | 按不截断原文块的8000字符预算分批数，最多8。 |
+| `completed_batch_count` | integer | 已校验并保存的批次数；重试保留完成批次。 |
+| `model` | string | 创建时冻结的模型名称。 |
+| `provider_origin` | string | 创建时冻结的模型服务目的地。 |
+| `prompt_profile` | string | 冻结的提示词版本。 |
+| `input_hash` | string | 输入产物、页级质量意见、模型和提示词配置的摘要。 |
+| `freshness` | string | CURRENT或STALE；文件上传新修订或选页质量意见变化时过期，不能直接采纳旧候选。 |
+| `error_code` | string / null | 最近错误代码，无失败时为空。 |
+| `error_detail` | string / null | 不含密钥、原始失败响应和文档正文的说明。 |
+| `usage` | object | 已完成批次的模型用量汇总；服务未返回时为空，不据此估算费用。 |
+| `created_at` | string (date-time) | UTC 创建时间。 |
+| `completed_at` | string (date-time) / null | 完成、取消或显式失败时的UTC时间；租约耗尽等情况可能为空。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "artifact_id": "示例",
+  "job_id": "示例",
+  "status": "示例",
+  "attempt": 1,
+  "pages": [
+    1
+  ],
+  "batch_count": 1,
+  "completed_batch_count": 1,
+  "model": "示例",
+  "provider_origin": "示例",
+  "prompt_profile": "示例",
+  "input_hash": "示例",
+  "freshness": "示例",
+  "error_code": "示例",
+  "error_detail": "示例",
+  "usage": {},
+  "created_at": "2026-10-19T09:00:00",
+  "completed_at": "2026-10-19T09:00:00"
+}
+```
+
+## 46. 查看项目最近的候选抽取任务
+
+`GET /api/v1/projects/{project_id}/extraction-runs`
+
+**业务场景**：任意成员查看任务状态、完成批次、固定模型和失败原因。按新到旧分页返回，不返回模型密钥、完整输入请求或原始失败响应。已成功但输入变化的任务仍保留并显示过期。 **下一步**：打开具体任务查看进度或候选；失败后由编写成员决定是否重试。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `offset` | query | 否 | integer | 默认=0；最小=0 | 跳过任务数。 |
+| `limit` | query | 否 | integer | 默认=30；最小=1；最大=100 | 最多返回任务数，最大100。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 抽取业务任务 ID。 |
+| `artifact_id` | string | 固定输入解析产物 ID。 |
+| `job_id` | string | MySQL/outbox 对应的执行任务 ID。 |
+| `status` | string | QUEUED/RUNNING/RETRY_WAIT/SUCCEEDED/FAILED/CANCELLED；成功只表示候选生成完成。 |
+| `attempt` | integer | Worker 领取次数，手工重试后重新计数。 |
+| `pages` | 数组<integer> | 所选实际页序。 |
+| `batch_count` | integer | 按不截断原文块的8000字符预算分批数，最多8。 |
+| `completed_batch_count` | integer | 已校验并保存的批次数；重试保留完成批次。 |
+| `model` | string | 创建时冻结的模型名称。 |
+| `provider_origin` | string | 创建时冻结的模型服务目的地。 |
+| `prompt_profile` | string | 冻结的提示词版本。 |
+| `input_hash` | string | 输入产物、页级质量意见、模型和提示词配置的摘要。 |
+| `freshness` | string | CURRENT或STALE；文件上传新修订或选页质量意见变化时过期，不能直接采纳旧候选。 |
+| `error_code` | string / null | 最近错误代码，无失败时为空。 |
+| `error_detail` | string / null | 不含密钥、原始失败响应和文档正文的说明。 |
+| `usage` | object | 已完成批次的模型用量汇总；服务未返回时为空，不据此估算费用。 |
+| `created_at` | string (date-time) | UTC 创建时间。 |
+| `completed_at` | string (date-time) / null | 完成、取消或显式失败时的UTC时间；租约耗尽等情况可能为空。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+[
+  {
+    "id": "示例",
+    "artifact_id": "示例",
+    "job_id": "示例",
+    "status": "示例",
+    "attempt": 1,
+    "pages": [
+      1
+    ],
+    "batch_count": 1,
+    "completed_batch_count": 1,
+    "model": "示例",
+    "provider_origin": "示例",
+    "prompt_profile": "示例",
+    "input_hash": "示例",
+    "freshness": "示例",
+    "error_code": "示例",
+    "error_detail": "示例",
+    "usage": {},
+    "created_at": "2026-10-19T09:00:00",
+    "completed_at": "2026-10-19T09:00:00"
+  }
+]
+```
+
+## 47. 查询单个要求抽取任务的状态与批次进度
+
+`GET /api/v1/projects/{project_id}/extraction-runs/{run_id}`
+
+**业务场景**：任意项目成员在后台任务运行时查询完成批次和错误。进度统计已成功校验并写入MySQL的批次，不用时间推算百分比。输入版本变化会显示过期。 **下一步**：SUCCEEDED后查询该任务候选；FAILED查看原因，CANCELLED不会再发布候选。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `run_id` | path | 是 | string | — | 抽取任务 ID，从创建任务或任务列表取得，不是通用 job_id。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 抽取业务任务 ID。 |
+| `artifact_id` | string | 固定输入解析产物 ID。 |
+| `job_id` | string | MySQL/outbox 对应的执行任务 ID。 |
+| `status` | string | QUEUED/RUNNING/RETRY_WAIT/SUCCEEDED/FAILED/CANCELLED；成功只表示候选生成完成。 |
+| `attempt` | integer | Worker 领取次数，手工重试后重新计数。 |
+| `pages` | 数组<integer> | 所选实际页序。 |
+| `batch_count` | integer | 按不截断原文块的8000字符预算分批数，最多8。 |
+| `completed_batch_count` | integer | 已校验并保存的批次数；重试保留完成批次。 |
+| `model` | string | 创建时冻结的模型名称。 |
+| `provider_origin` | string | 创建时冻结的模型服务目的地。 |
+| `prompt_profile` | string | 冻结的提示词版本。 |
+| `input_hash` | string | 输入产物、页级质量意见、模型和提示词配置的摘要。 |
+| `freshness` | string | CURRENT或STALE；文件上传新修订或选页质量意见变化时过期，不能直接采纳旧候选。 |
+| `error_code` | string / null | 最近错误代码，无失败时为空。 |
+| `error_detail` | string / null | 不含密钥、原始失败响应和文档正文的说明。 |
+| `usage` | object | 已完成批次的模型用量汇总；服务未返回时为空，不据此估算费用。 |
+| `created_at` | string (date-time) | UTC 创建时间。 |
+| `completed_at` | string (date-time) / null | 完成、取消或显式失败时的UTC时间；租约耗尽等情况可能为空。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "artifact_id": "示例",
+  "job_id": "示例",
+  "status": "示例",
+  "attempt": 1,
+  "pages": [
+    1
+  ],
+  "batch_count": 1,
+  "completed_batch_count": 1,
+  "model": "示例",
+  "provider_origin": "示例",
+  "prompt_profile": "示例",
+  "input_hash": "示例",
+  "freshness": "示例",
+  "error_code": "示例",
+  "error_detail": "示例",
+  "usage": {},
+  "created_at": "2026-10-19T09:00:00",
+  "completed_at": "2026-10-19T09:00:00"
+}
+```
+
+## 48. 明确重试失败的抽取任务并保留完成批次
+
+`POST /api/v1/projects/{project_id}/extraction-runs/{run_id}/retry`
+
+**业务场景**：OWNER/EDITOR修复临时服务或密钥问题后明确重试。只允许FAILED且输入、配置仍一致；已完成批次保留，未完成批次可能再次调用并计费，超时重发不能保证云端只执行一次。 **下一步**：查看任务进度；文件、质量意见或模型配置变化应新建任务而非复用旧结果。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `run_id` | path | 是 | string | — | 抽取任务 ID，从创建任务或任务列表取得，不是通用 job_id。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `expected_attempt` | 是 | integer | 最小=0.0 | 所见任务 attempt，状态变化须刷新；取消可作用于当前运行代次。 |
+
+```json
+{
+  "expected_attempt": 1
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 抽取业务任务 ID。 |
+| `artifact_id` | string | 固定输入解析产物 ID。 |
+| `job_id` | string | MySQL/outbox 对应的执行任务 ID。 |
+| `status` | string | QUEUED/RUNNING/RETRY_WAIT/SUCCEEDED/FAILED/CANCELLED；成功只表示候选生成完成。 |
+| `attempt` | integer | Worker 领取次数，手工重试后重新计数。 |
+| `pages` | 数组<integer> | 所选实际页序。 |
+| `batch_count` | integer | 按不截断原文块的8000字符预算分批数，最多8。 |
+| `completed_batch_count` | integer | 已校验并保存的批次数；重试保留完成批次。 |
+| `model` | string | 创建时冻结的模型名称。 |
+| `provider_origin` | string | 创建时冻结的模型服务目的地。 |
+| `prompt_profile` | string | 冻结的提示词版本。 |
+| `input_hash` | string | 输入产物、页级质量意见、模型和提示词配置的摘要。 |
+| `freshness` | string | CURRENT或STALE；文件上传新修订或选页质量意见变化时过期，不能直接采纳旧候选。 |
+| `error_code` | string / null | 最近错误代码，无失败时为空。 |
+| `error_detail` | string / null | 不含密钥、原始失败响应和文档正文的说明。 |
+| `usage` | object | 已完成批次的模型用量汇总；服务未返回时为空，不据此估算费用。 |
+| `created_at` | string (date-time) | UTC 创建时间。 |
+| `completed_at` | string (date-time) / null | 完成、取消或显式失败时的UTC时间；租约耗尽等情况可能为空。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "artifact_id": "示例",
+  "job_id": "示例",
+  "status": "示例",
+  "attempt": 1,
+  "pages": [
+    1
+  ],
+  "batch_count": 1,
+  "completed_batch_count": 1,
+  "model": "示例",
+  "provider_origin": "示例",
+  "prompt_profile": "示例",
+  "input_hash": "示例",
+  "freshness": "示例",
+  "error_code": "示例",
+  "error_detail": "示例",
+  "usage": {},
+  "created_at": "2026-10-19T09:00:00",
+  "completed_at": "2026-10-19T09:00:00"
+}
+```
+
+## 49. 取消活动抽取任务并阻止后续候选发布
+
+`POST /api/v1/projects/{project_id}/extraction-runs/{run_id}/cancel`
+
+**业务场景**：OWNER/EDITOR不再需要当前抽取时取消。递增租约令牌以拒绝旧Worker写入，停止后续批次；已发出的云端请求可能仍执行和计费，不能承诺远程撤销。保留任务事实而不删除历史。 **下一步**：需要重新处理时创建新任务；取消任务不会改变正式要求、材料或审查结论。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `run_id` | path | 是 | string | — | 抽取任务 ID，从创建任务或任务列表取得，不是通用 job_id。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `expected_attempt` | 是 | integer | 最小=0.0 | 所见任务 attempt，状态变化须刷新；取消可作用于当前运行代次。 |
+
+```json
+{
+  "expected_attempt": 1
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 抽取业务任务 ID。 |
+| `artifact_id` | string | 固定输入解析产物 ID。 |
+| `job_id` | string | MySQL/outbox 对应的执行任务 ID。 |
+| `status` | string | QUEUED/RUNNING/RETRY_WAIT/SUCCEEDED/FAILED/CANCELLED；成功只表示候选生成完成。 |
+| `attempt` | integer | Worker 领取次数，手工重试后重新计数。 |
+| `pages` | 数组<integer> | 所选实际页序。 |
+| `batch_count` | integer | 按不截断原文块的8000字符预算分批数，最多8。 |
+| `completed_batch_count` | integer | 已校验并保存的批次数；重试保留完成批次。 |
+| `model` | string | 创建时冻结的模型名称。 |
+| `provider_origin` | string | 创建时冻结的模型服务目的地。 |
+| `prompt_profile` | string | 冻结的提示词版本。 |
+| `input_hash` | string | 输入产物、页级质量意见、模型和提示词配置的摘要。 |
+| `freshness` | string | CURRENT或STALE；文件上传新修订或选页质量意见变化时过期，不能直接采纳旧候选。 |
+| `error_code` | string / null | 最近错误代码，无失败时为空。 |
+| `error_detail` | string / null | 不含密钥、原始失败响应和文档正文的说明。 |
+| `usage` | object | 已完成批次的模型用量汇总；服务未返回时为空，不据此估算费用。 |
+| `created_at` | string (date-time) | UTC 创建时间。 |
+| `completed_at` | string (date-time) / null | 完成、取消或显式失败时的UTC时间；租约耗尽等情况可能为空。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "artifact_id": "示例",
+  "job_id": "示例",
+  "status": "示例",
+  "attempt": 1,
+  "pages": [
+    1
+  ],
+  "batch_count": 1,
+  "completed_batch_count": 1,
+  "model": "示例",
+  "provider_origin": "示例",
+  "prompt_profile": "示例",
+  "input_hash": "示例",
+  "freshness": "示例",
+  "error_code": "示例",
+  "error_detail": "示例",
+  "usage": {},
+  "created_at": "2026-10-19T09:00:00",
+  "completed_at": "2026-10-19T09:00:00"
+}
+```
+
+## 50. 分页阅读模型候选、出处与人工处理状态
+
+`GET /api/v1/projects/{project_id}/requirement-candidates`
+
+**业务场景**：任意成员查看结构与引用已通过服务端校验的候选建议。可按任务过滤，按创建时间和ID分页，不将模型理由当作事实，不把待审候选直接计入基线或覆盖率。 **下一步**：编写人逐项回看原文，修改后采纳为草稿，或说明原因忽略；旧输入候选禁止直接采纳。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `run_id` | query | 否 | string / null | — | 可选来源抽取任务ID。 |
+| `offset` | query | 否 | integer | 默认=0；最小=0 | 跳过的候选条数。 |
+| `limit` | query | 否 | integer | 默认=50；最小=1；最大=100 | 每页最多100条。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 候选要求 ID。 |
+| `run_id` | string | 来源抽取任务 ID。 |
+| `proposed` | object | 不可变模型原建议，含标题、正文、类别、重要性、理由和引用块 ID。它不是已确认的招标要求。 |
+| `sources` | 数组<object> | 服务端从允许的输入块回查的出处，不采用模型自造引文。 |
+| `status` | string | PENDING待处理、IMPORTED已采纳为草稿、REJECTED人工忽略。 |
+| `version` | integer | 当前候选处理版本，决定时回传 expected_version。 |
+| `requirement_id` | string / null | 采纳后关联的逻辑要求 ID，尚未采纳为空。 |
+| `review` | object / null | 一次不可变人工处理凭据，包含动作、说明、实际人及采纳时编辑后的内容。 |
+| `freshness` | string | 输入CURRENT或STALE；旧候选可忽略，但不能直接采纳。 |
+| `created_at` | string (date-time) | UTC 创建时间。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+[
+  {
+    "id": "示例",
+    "run_id": "示例",
+    "proposed": {},
+    "sources": [
+      {
+        "artifact_id": "示例",
+        "block_id": "示例",
+        "revision_id": "示例",
+        "document_id": "示例",
+        "document_kind": "示例",
+        "revision_sha256": "示例",
+        "page": 1,
+        "bbox": [
+          79.4,
+          159.783,
+          523.025,
+          170.283
+        ],
+        "quote": "示例",
+        "text_hash": "示例",
+        "submission_role": "示例"
+      }
+    ],
+    "status": "示例",
+    "version": 1,
+    "requirement_id": "示例",
+    "review": {},
+    "freshness": "示例",
+    "created_at": "2026-10-19T09:00:00"
+  }
+]
+```
+
+## 51. 人工修改并采纳候选为要求草稿，或说明原因忽略
+
+`POST /api/v1/projects/{project_id}/requirement-candidates/{candidate_id}/decisions`
+
+**业务场景**：OWNER/EDITOR逐项回看原文后决定采纳或忽略，使用候选版本和幂等键防重复。原模型建议不覆盖，处理凭据保存编辑后内容、说明和实际人。采纳只创建DRAFT，来源由服务端固定回查；完全相同正文与来源的已有要求会拒绝重复导入。 **下一步**：到整理要求页面核对草稿、补充来源并确认，然后由原有接口显式发布基线。模型和采纳接口都不自动确认。 业务接口按项目成员隔离，找不到或无权限统一404；写入使用幂等键与项目锁，Cookie写入要求同源Origin。模型不自动发布基线或确认满足，来源仍须人工核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `candidate_id` | path | 是 | string | — | 待人工核对的候选要求 ID。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `expected_version` | 是 | integer | 最小=1.0 | 候选当前版本，防止另一人已采纳后重复创建要求。 |
+| `action` | 是 | string | 可选值=IMPORT, REJECT | IMPORT采纳为待确认草稿；REJECT忽略。均须OWNER/EDITOR。 |
+| `note` | 是 | string | 最短字符数=1；最长字符数=4000 | 人工处理意见，说明核对或忽略原因。 |
+| `requirement` | 否 | object / null | — | IMPORT必填的人工核对后内容；引用固定为候选原出处，导入后可在要求修订界面继续补充来源。 |
+
+```json
+{
+  "expected_version": 1,
+  "action": "IMPORT",
+  "note": "示例",
+  "requirement": {
+    "title": "示例",
+    "text": "示例",
+    "category": "TECHNICAL",
+    "priority": "MANDATORY"
+  }
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 候选要求 ID。 |
+| `run_id` | string | 来源抽取任务 ID。 |
+| `proposed` | object | 不可变模型原建议，含标题、正文、类别、重要性、理由和引用块 ID。它不是已确认的招标要求。 |
+| `sources` | 数组<object> | 服务端从允许的输入块回查的出处，不采用模型自造引文。 |
+| `status` | string | PENDING待处理、IMPORTED已采纳为草稿、REJECTED人工忽略。 |
+| `version` | integer | 当前候选处理版本，决定时回传 expected_version。 |
+| `requirement_id` | string / null | 采纳后关联的逻辑要求 ID，尚未采纳为空。 |
+| `review` | object / null | 一次不可变人工处理凭据，包含动作、说明、实际人及采纳时编辑后的内容。 |
+| `freshness` | string | 输入CURRENT或STALE；旧候选可忽略，但不能直接采纳。 |
+| `created_at` | string (date-time) | UTC 创建时间。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "run_id": "示例",
+  "proposed": {},
+  "sources": [
+    {
+      "artifact_id": "示例",
+      "block_id": "示例",
+      "revision_id": "示例",
+      "document_id": "示例",
+      "document_kind": "示例",
+      "revision_sha256": "示例",
+      "page": 1,
+      "bbox": [
+        79.4,
+        159.783,
+        523.025,
+        170.283
+      ],
+      "quote": "示例",
+      "text_hash": "示例",
+      "submission_role": "示例"
+    }
+  ],
+  "status": "示例",
+  "version": 1,
+  "requirement_id": "示例",
+  "review": {},
+  "freshness": "示例",
+  "created_at": "2026-10-19T09:00:00"
+}
 ```
 
 ## 状态和常见问题速查

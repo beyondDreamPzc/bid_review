@@ -244,7 +244,7 @@ class WorkspaceResponse(BaseModel):
     requirement_count: int = Field(description="已录入逻辑要求数。")
     issue_count: int = Field(description="历史登记的问题总数，不等于当前未解决数。")
     pending_requirement_changes: bool = Field(description="存在未纳入当前基线的新要求/新修订；需确认并重新发布基线。")
-    review_mode: Literal["HUMAN"] = Field(description="当前为人工业务流程，尚无模型自动抽取/审查。")
+    review_mode: Literal["HUMAN"] = Field(description="最终判断仍由人工完成；可选模型仅建议要求候选，不自动确认要求或审查响应。")
 
 
 class RequirementReportRow(BaseModel):

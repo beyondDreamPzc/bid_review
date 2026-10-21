@@ -1,7 +1,7 @@
 name: bid-review-phase1
 
 x-app: &app
-  image: bid-review-app:0.5.0
+  image: bid-review-app:0.6.0
   environment: &app-environment
     BID_DATABASE_URL: mysql+pymysql://bid_user:${MYSQL_PASSWORD:?Run scripts/init_env.py}@mysql:3306/bid_review?charset=utf8mb4
     BID_REDIS_URL: redis://redis:6379/0
@@ -15,6 +15,18 @@ x-app: &app
       condition: service_healthy
     redis:
       condition: service_healthy
+
+x-llm-environment: &llm-environment
+  <<: *app-environment
+  BID_LLM_ENABLED: ${BID_LLM_ENABLED:-false}
+  BID_LLM_BASE_URL: ${BID_LLM_BASE_URL:-https://api.openai.com/v1}
+  BID_LLM_API_KEY: ${BID_LLM_API_KEY:-}
+  BID_LLM_MODEL: ${BID_LLM_MODEL:-}
+  BID_LLM_OUTPUT_MODE: ${BID_LLM_OUTPUT_MODE:-json_schema}
+  BID_LLM_TOKEN_PARAMETER: ${BID_LLM_TOKEN_PARAMETER:-max_completion_tokens}
+  BID_LLM_TIMEOUT_SECONDS: ${BID_LLM_TIMEOUT_SECONDS:-45}
+  BID_LLM_MAX_OUTPUT_TOKENS: ${BID_LLM_MAX_OUTPUT_TOKENS:-4096}
+  BID_LLM_ALLOW_INSECURE_HTTP: ${BID_LLM_ALLOW_INSECURE_HTTP:-false}
 
 services:
   mysql:
@@ -59,6 +71,7 @@ services:
 
   api:
     <<: *app
+    environment: *llm-environment
     build: .
     ports:
       - "127.0.0.1:18080:8000"
@@ -81,6 +94,14 @@ services:
   dispatcher:
     <<: *app
     command: ["python", "-m", "app.dispatcher"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  extraction-worker:
+    <<: *app
+    environment: *llm-environment
+    command: ["python", "-m", "celery", "-A", "app.worker:celery_app", "worker", "-Q", "extract", "--concurrency=1", "--loglevel=INFO"]
     depends_on:
       migrate:
         condition: service_completed_successfully

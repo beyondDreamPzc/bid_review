@@ -37,6 +37,12 @@ def minimal_pdf(text="Response within 4 hours") -> bytes:
 def environment(tmp_path, monkeypatch):
     monkeypatch.setenv("BID_STORAGE_PATH", str(tmp_path / "blobs"))
     monkeypatch.setenv("BID_DEMO_ENABLED", "false")  # Tests must not inherit Compose's local demo setting.
+    monkeypatch.setenv("BID_LLM_ENABLED", "false")  # No test may accidentally call a configured cloud model.
+    # The optional local HTTP fixture and a developer's provider settings must not change unit-test defaults.
+    for name,value in {"BASE_URL":"https://api.openai.com/v1", "API_KEY":"", "MODEL":"",
+                       "OUTPUT_MODE":"json_schema", "TOKEN_PARAMETER":"max_completion_tokens",
+                       "TIMEOUT_SECONDS":"45", "MAX_OUTPUT_TOKENS":"4096", "ALLOW_INSECURE_HTTP":"false"}.items():
+        monkeypatch.setenv("BID_LLM_"+name,value)
     get_settings.cache_clear()
     engine = make_engine(f"sqlite:///{tmp_path / 'test.db'}")
     Base.metadata.create_all(engine)
