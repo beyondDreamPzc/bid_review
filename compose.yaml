@@ -1,13 +1,14 @@
 name: bid-review-phase1
 
 x-app: &app
-  image: bid-review-app:0.6.0
+  image: bid-review-app:0.7.0
   environment: &app-environment
     BID_DATABASE_URL: mysql+pymysql://bid_user:${MYSQL_PASSWORD:?Run scripts/init_env.py}@mysql:3306/bid_review?charset=utf8mb4
     BID_REDIS_URL: redis://redis:6379/0
     BID_STORAGE_PATH: /data/blobs
     BID_BOOTSTRAP_API_KEY: ${BID_BOOTSTRAP_API_KEY:?Run scripts/init_env.py}
     BID_DEMO_ENABLED: ${BID_DEMO_ENABLED:-true}
+    BID_PARSER_PROFILE: ${BID_PARSER_PROFILE:-mineru-4.0.12-flash-auto-v1}
   volumes:
     - documents:/data/blobs
   depends_on:
@@ -72,7 +73,9 @@ services:
   api:
     <<: *app
     environment: *llm-environment
-    build: .
+    build:
+      context: .
+      target: app
     ports:
       - "127.0.0.1:18080:8000"
     depends_on:
@@ -86,6 +89,20 @@ services:
 
   worker:
     <<: *app
+    image: bid-review-parser:0.7.0
+    build:
+      context: .
+      target: mineru-worker
+    environment:
+      <<: *app-environment
+      BID_MINERU_PYTHON: /opt/mineru/bin/python
+      BID_MINERU_TIMEOUT_SECONDS: ${BID_MINERU_TIMEOUT_SECONDS:-900}
+      MINERU_HOME: /data/mineru
+      MINERU_MODEL_SMALL_BACKEND: onnx
+      MINERU_TABLE_DEVICE: cpu
+    volumes:
+      - documents:/data/blobs
+      - mineru_models:/data/mineru
     command: ["python", "-m", "celery", "-A", "app.worker:celery_app", "worker", "-Q", "parse", "--concurrency=1", "--loglevel=INFO"]
     depends_on:
       migrate:
@@ -110,3 +127,4 @@ volumes:
   mysql_data:
   redis_data:
   documents:
+  mineru_models:

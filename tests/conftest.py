@@ -37,6 +37,7 @@ def minimal_pdf(text="Response within 4 hours") -> bytes:
 def environment(tmp_path, monkeypatch):
     monkeypatch.setenv("BID_STORAGE_PATH", str(tmp_path / "blobs"))
     monkeypatch.setenv("BID_DEMO_ENABLED", "false")  # Tests must not inherit Compose's local demo setting.
+    monkeypatch.setenv("BID_PARSER_PROFILE","pdfplumber-probe-v1")  # Historical workflow unit fixtures; real MinerU is verified separately.
     monkeypatch.setenv("BID_LLM_ENABLED", "false")  # No test may accidentally call a configured cloud model.
     # The optional local HTTP fixture and a developer's provider settings must not change unit-test defaults.
     for name,value in {"BASE_URL":"https://api.openai.com/v1", "API_KEY":"", "MODEL":"",

@@ -7,10 +7,18 @@ import pdfplumber
 from app.storage import sha256
 
 PROFILE = "pdfplumber-probe-v1"
+PARSE_JOB_KINDS = ("PDF_TEXT_PROBE", "PDF_PARSE")
 
 
 class ParseRejected(ValueError):
     pass
+
+
+def parse_pdf(data,profile,settings,heartbeat):
+    # Historical queued jobs retain their frozen engine; never reinterpret an old profile.
+    if profile==PROFILE:return probe_pdf(data,settings.max_pdf_pages,heartbeat)
+    from app.mineru_parser import run_mineru
+    return run_mineru(data,profile,settings,heartbeat)
 
 
 def probe_pdf(data: bytes, max_pages: int, heartbeat: Callable[[], None]) -> dict:

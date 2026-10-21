@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 
 PROFILE = "text-quality-v1"
-LIMITATIONS = ["仅检查已提取文字，无法证明没有漏字。", "不识别扫描图像，也不执行 OCR。",
+LIMITATIONS = ["仅检查已提取文字，无法证明没有漏字。", "本诊断不执行 OCR；文字或 OCR 结果由产物所用解析配置决定。",
                "不重建表格、跨栏阅读顺序或合并单元格；复杂页面必须回看原件。"]
 
 

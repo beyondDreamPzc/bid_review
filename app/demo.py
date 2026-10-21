@@ -3,6 +3,7 @@ import re
 import secrets
 import time
 import uuid
+import unicodedata
 from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Literal
@@ -22,6 +23,7 @@ from app.dependencies import DB
 from app.jobs import run_job
 from app.services import ingest_pdf
 from app.storage import BlobStore, sha256
+from app.parsers import PROFILE
 
 router = APIRouter(prefix="/demo/api", include_in_schema=False)
 COOKIE = "bid_demo_session"
@@ -73,9 +75,11 @@ def parse_upload(db, user, project_id, filename, key, *, document_id=None):
     result = ingest_pdf(db, BlobStore(settings.storage_path), user, project_id,
         (ASSETS / filename).read_bytes(), "项目招标文件.pdf" if filename == "tender.pdf" else "技术响应书.pdf",
         "TENDER" if filename == "tender.pdf" else "RESPONSE", key, settings.parser_profile, document_id=document_id)
-    run_job(factory, result["job_id"], settings)
+    # MinerU only exists in the dedicated worker; API must not claim an inference job it cannot execute.
+    if settings.parser_profile==PROFILE:
+        run_job(factory, result["job_id"], settings)
     # A real dispatcher may have claimed this job first. Wait for its result without holding a DB snapshot.
-    for _ in range(100):
+    for _ in range(300):
         with factory() as fresh:
             job = fresh.get(m.Job, result["job_id"])
             if job.status == "SUCCEEDED":
@@ -88,7 +92,8 @@ def parse_upload(db, user, project_id, filename, key, *, document_id=None):
 
 def block_for(db, artifact_id, prefix):
     return next(row for row in db.scalars(select(m.DocumentBlock).where(
-        m.DocumentBlock.artifact_id == artifact_id).order_by(m.DocumentBlock.block_id)) if row.text.startswith(prefix))
+        m.DocumentBlock.artifact_id == artifact_id).order_by(m.DocumentBlock.block_id))
+        if unicodedata.normalize("NFKC",row.text).startswith(unicodedata.normalize("NFKC",prefix)))
 
 
 def reference(block):

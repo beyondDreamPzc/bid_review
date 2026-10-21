@@ -1,6 +1,12 @@
 # 投标文件审查与资料协同系统
 
-当前版本 **0.6.0**：新增可配置云模型的要求候选抽取，支持后台分批、失败恢复、出处校验，以及人工编辑后采纳为待确认草稿。已有“我的项目”网页可以使用自己的 PDF 走通质量核对、要求整理、正式材料选择、人工审查、整改复核及报告导出。项目仍处于本地单机开发阶段；没有声称已有企业上线或实际客户使用经历。
+当前版本 **0.7.0**：PDF解析重构为本地MinerU4.0.12，支持文字PDF及自动OCR，新增已有文件重解析入口，保留历史产物和旧出处。已有要求候选、人工审查、整改复核与报告流程继续可用。项目仍处于本地单机开发阶段。
+
+## MinerU PDF解析
+
+新上传默认使用 `mineru-4.0.12-flash-auto-v1`；在“资料与版本”点击“重新解析”可升级旧PDF的解析产物，无需重复上传。旧要求和正式材料仍引用原快照，新产物须重新核对质量后明确采用。解析Worker使用独立镜像和Python环境，CPU即可运行；首次OCR需下载模型。
+
+本轮已实际调用MinerU验证中文文字PDF及构造扫描页。使用、配置和坐标转换见 [MinerU解析重构](docs/MinerU解析重构.md)，结果见 [0.7.0验收](docs/mineru-verification.md)。
 
 ## AI 要求候选
 
@@ -16,7 +22,7 @@
 
 打开 **[我的项目](http://127.0.0.1:18080/workspace)**，使用本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 登录初始负责人账号。密钥仅用于登录请求，网页不在本地存储中保存它；后续使用可撤销的 HttpOnly Cookie。详细操作见 [真实项目工作台使用说明](docs/真实项目工作台.md)。
 
-1. 创建项目，在“资料与版本”上传有文字层的招标、响应或证明 PDF；等待后台解析，并打开原件检查。
+1. 创建项目，在“资料与版本”上传招标、响应或证明 PDF；等待后台解析，并打开原件检查。
 2. 在“整理要求”选择招标原文，写出一条能独立核对的要求，保存、确认，再发布全部要求。
 3. 在“资料与版本”明确选择本轮使用的响应修订及用途，发布正式材料集。
 4. 在“本轮审查”逐项阅读双方原文，保存人工判断；发现问题时登记缺口并指派整改人。
@@ -40,19 +46,19 @@
 
 Compose 本机默认开启 `BID_DEMO_ENABLED=true`，普通应用配置默认关闭。正式共享部署须关闭此变量；演示 Cookie 不能操作或下载其他项目。所有本机端口仍只绑定127.0.0.1。
 
-已实现：项目成员与角色、PDF 上传/不可变修订/幂等、MySQL 任务与 outbox、Redis/Celery 投递、租约恢复和旧 Worker 写入拦截、文字层探针、页码/bbox 来源与原件下载、要求修订/确认/完整基线、冻结正式材料集、问题指派/整改/独立复核、逐项人工报告和审计。
+已实现：项目成员与角色、PDF 上传/不可变修订/幂等、MySQL 任务与 outbox、Redis/Celery 投递、租约恢复和旧 Worker 写入拦截、MinerU解析和历史探针兼容、页码/bbox 来源与原件下载、要求修订/确认/完整基线、冻结正式材料集、问题指派/整改/独立复核、逐项人工报告和审计。
 
-当前为 `review_mode=HUMAN`。解析器 `pdfplumber-probe-v1` 只提取文字层，产物固定 `NEEDS_REVIEW`、`formal_review_ready=false`，表示不能自动审查；人工引用时须回看原件。Docling、DOCX、OCR、RAG/Milvus、LangGraph 模型审查和更正自动影响分析尚未实现。
+当前为 `review_mode=HUMAN`。新解析器为MinerU4.0.12 Flash/auto，历史`pdfplumber-probe-v1`产物仍保留。产物均为`NEEDS_REVIEW`、`formal_review_ready=false`，人工引用须回看原件。DOCX接入、RAG/Milvus、LangGraph模型审查和更正自动影响分析尚未实现。
 
 ## 接口怎么使用
 
-先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [51 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
+先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [52 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
 
 顺序：认证/项目分工 → 上传 PDF 并核对原文 → 登记要求 → 确认并发布基线 → 选择正式材料 → 登记问题 → 负责人整改 → 另一人复核 → 逐项审核决定 → 报告。Swagger 的 `Try it out` 可调试，`Schema` 可查看字段中文说明。各 ID 不能混用。
 
 新材料/基线会使旧提交及审核过期；同轮发现新问题也会使该要求的原满足决定失效。没有问题记录不等于检查过，未发布要求修改也会阻止报告显示完成。
 
-`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.6.0 候选抽取实测](docs/extraction-verification.md)，历史结果见 [0.5.0 质量检查实测](docs/quality-verification.md) 和 [0.4.0 工作台实测](docs/workspace-verification.md)。
+`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.7.0 MinerU实测](docs/mineru-verification.md)，0.6.0见 [候选抽取实测](docs/extraction-verification.md)，历史结果见 [0.5.0 质量检查实测](docs/quality-verification.md) 和 [0.4.0 工作台实测](docs/workspace-verification.md)。
 
 ## 启动
 
@@ -102,7 +108,7 @@ docker compose exec api python scripts/mysql_invariants.py
 
 自动测试使用独立 SQLite 数据库检查业务不变量；真实 MySQL、Redis 和 Worker 另用集成路径验证，不能以 SQLite 单测代替 MySQL 兼容性结论。迁移在 `migrations/versions`，不得通过应用启动时 `create_all` 代替生产迁移。
 
-`docs/phase1-verification.md`、`docs/phase2-verification.md` 保留前两阶段历史结果，本轮见 `docs/extraction-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
+`docs/phase1-verification.md`、`docs/phase2-verification.md` 保留前两阶段历史结果，本轮见 `docs/mineru-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
 
 ## 目录
 
@@ -126,7 +132,10 @@ app/demo_assets/     明确标记的中文PDF构造样本
 app/services.py      上传幂等及文档版本事务
 app/models.py        核心领域表
 app/jobs.py          领取、租约、结果提交、恢复及 outbox
-app/parsers.py       文字层和 bbox 诊断
+app/parsers.py       按冻结profile分派，兼容历史文字层探针
+app/mineru_parser.py  隔离SDK进程、协议校验、坐标和纯文本标准化
+app/mineru_runner.py  固定MinerU4 SDK调用与安全错误类别
+app/parse_api.py      同一PDF的新配置解析和显式失败重试
 app/worker.py        Celery Worker
 app/dispatcher.py    单实例投递与恢复扫描
 migrations/          Alembic 迁移

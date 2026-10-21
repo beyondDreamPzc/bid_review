@@ -11,6 +11,7 @@ from app.api_docs import error_responses
 from app.dependencies import CurrentUser, DB, ProjectID
 from app.session_auth import COOKIE_NAME, same_origin
 from app.storage import sha256
+from app.parsers import PARSE_JOB_KINDS
 
 router = APIRouter(prefix="/api/v1", tags=["07 成员与工作台"])
 
@@ -38,6 +39,8 @@ class FileRevision(BaseModel):
     job_status: str | None = Field(description="后台任务状态，成功才可选择文字出处。")
     error_detail: str | None = Field(description="处理失败的原因，未失败时可为空。")
     artifact_id: str | None = Field(description="成功解析后的产物 ID，选原文和正式材料时使用。")
+    parser_profile: str | None = Field(description="当前可查看产物的解析配置；新任务未完成时可保留最近成功的历史产物。")
+    job_parser_profile: str | None = Field(description="最近请求的解析配置，与当前可查看产物可能不同。")
     page_count: int | None = Field(description="解析取得的 PDF 总页数。")
     block_count: int | None = Field(description="解析取得的文字块数。零文字需检查扫描件情况。")
 
@@ -120,13 +123,17 @@ def workbench(project_id: ProjectID, db: DB, user: CurrentUser, response: Respon
     for doc in db.scalars(select(m.Document).where(m.Document.project_id == project_id).order_by(m.Document.created_at, m.Document.id)):
         revisions = []
         for rev in db.scalars(select(m.DocumentRevision).where(m.DocumentRevision.document_id == doc.id).order_by(m.DocumentRevision.revision_no.desc())):
-            job = db.scalar(select(m.Job).where(m.Job.revision_id == rev.id, m.Job.kind == "PDF_TEXT_PROBE")
+            job = db.scalar(select(m.Job).where(m.Job.revision_id == rev.id, m.Job.kind.in_(PARSE_JOB_KINDS))
                             .order_by(m.Job.created_at.desc(), m.Job.id).limit(1))
             artifact = db.get(m.ParseArtifact, job.artifact_id) if job and job.artifact_id else None
+            if artifact is None:
+                artifact=db.scalar(select(m.ParseArtifact).where(m.ParseArtifact.revision_id==rev.id)
+                    .order_by(m.ParseArtifact.created_at.desc(),m.ParseArtifact.id.desc()).limit(1))
             revisions.append({"id": rev.id, "revision_no": rev.revision_no, "created_at": rev.created_at,
                 "byte_size": rev.byte_size, "status": rev.status, "job_id": job.id if job else None,
                 "job_status": job.status if job else None, "error_detail": job.error_detail if job else None,
-                "artifact_id": artifact.id if artifact else None, "page_count": artifact.page_count if artifact else None,
+                "artifact_id": artifact.id if artifact else None, "parser_profile":artifact.parser_profile if artifact else None,
+                "job_parser_profile":job.parser_profile if job else None,"page_count": artifact.page_count if artifact else None,
                 "block_count": artifact.block_count if artifact else None})
         files.append({"id": doc.id, "title": doc.title, "kind": doc.kind, "revisions": revisions})
     response.headers["Cache-Control"] = "no-store"

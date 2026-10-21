@@ -11,7 +11,7 @@ services:
   extraction-worker:
     environment: *fixture-model
   model-fixture:
-    image: bid-review-app:0.6.0
+    image: bid-review-app:0.7.0
     command: ["python", "tests/support/model_fixture.py"]
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:19091/health',timeout=3)"]

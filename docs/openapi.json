@@ -3,8 +3,8 @@
   "info": {
     "title": "投标文件审查与资料协同系统",
     "summary": "可追溯的文档版本、人工要求基线、问题整改与独立复核",
-    "description": "\n本系统当前支持**投标材料工程基础和人工业务闭环**：上传 PDF 保留修订、核对原文、人工整理并确认要求、发布基线和正式材料集、登记问题、指派整改、由另一人复核，再逐项作出审核决定。\n完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`；可选云模型只生成要求候选，人工采纳后仍是待确认草稿。模型默认关闭，RAG 和自动审查尚未接入。\n\n### 第一次使用\n\n1. 点击右上角 **Authorize**，填入项目本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 的值；只填值，不加 `Bearer`。\n2. 创建项目，记下返回的 `id`，它就是 `project_id`。\n3. 上传 PDF，记下 `document_id`、`revision_id`、`job_id`。\n4. 查询任务；`status=SUCCEEDED` 后取得 `artifact_id`。\n5. 查询解析产物和文字块，再用来源接口获取页码、矩形位置和原件地址。\n   可选：在“12 解析质量核对”确认所选页文字可用，配置模型后通过“13 AI要求候选”异步生成建议，再人工编辑采纳为草稿。未配置模型仍可手工整理。\n6. 在“08 要求与基线”登记并确认要求，发布基线；在“09 正式响应材料”明确本轮正式文件。\n7. 在“10 问题与整改”登记冲突并指定负责人；整改后由另一人复核，在“11 人工审查结论”完成逐项确认并查看报告。\n\n### 五种 ID 分别是什么\n\n| 名称 | 含义 | 从哪里取得 |\n|---|---|---|\n| `project_id` | 一次投标工作的资料空间 | 创建/列出项目 |\n| `document_id` | 一份逻辑文档，例如技术响应书；多个修订共用 | 上传新文档 |\n| `revision_id` | 某一次不可变的 PDF 文件版本 | 上传或列出修订 |\n| `job_id` | 后台处理这份文件的任务 | 上传接口 |\n| `artifact_id` | 某修订按某解析配置生成的结果 | 查询成功任务 |\n\n`block_id` 是某个产物内部的文字块编号，必须与其 `artifact_id` 配套使用。示例 ID 只说明格式，实际调用时请替换为接口真实返回的 ID。\n\n### 需要正确理解的状态\n\n- HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。\n- `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。\n- `NEEDS_REVIEW`：产物需要检查；当前尚未验证表格语义，也没有运行 OCR。\n- `formal_review_ready=false`：文字层探针尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。\n- `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。\n- `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。\n\n项目业务接口需要 `X-API-Key` 或有效浏览器登录 Cookie。网页登录入口为 `/workspace`；Cookie 由登录接口设置，写请求还必须带与本站一致的 `Origin`，不能手工把 API Key 填进 Cookie。健康检查、登录及退出不要求已有会话。找不到对象和无权访问对象统一返回 **404**。\n",
-    "version": "0.6.0"
+    "description": "\n本系统当前支持**投标材料工程基础和人工业务闭环**：上传 PDF 保留修订、核对原文、人工整理并确认要求、发布基线和正式材料集、登记问题、指派整改、由另一人复核，再逐项作出审核决定。\n完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`；可选云模型只生成要求候选，人工采纳后仍是待确认草稿。模型默认关闭，RAG 和自动审查尚未接入。\n\n### 第一次使用\n\n1. 点击右上角 **Authorize**，填入项目本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 的值；只填值，不加 `Bearer`。\n2. 创建项目，记下返回的 `id`，它就是 `project_id`。\n3. 上传 PDF，记下 `document_id`、`revision_id`、`job_id`。\n4. 查询任务；`status=SUCCEEDED` 后取得 `artifact_id`。\n5. 查询解析产物和文字块，再用来源接口获取页码、矩形位置和原件地址。\n   可选：在“12 解析质量核对”确认所选页文字可用，配置模型后通过“13 AI要求候选”异步生成建议，再人工编辑采纳为草稿。未配置模型仍可手工整理。\n6. 在“08 要求与基线”登记并确认要求，发布基线；在“09 正式响应材料”明确本轮正式文件。\n7. 在“10 问题与整改”登记冲突并指定负责人；整改后由另一人复核，在“11 人工审查结论”完成逐项确认并查看报告。\n\n### 五种 ID 分别是什么\n\n| 名称 | 含义 | 从哪里取得 |\n|---|---|---|\n| `project_id` | 一次投标工作的资料空间 | 创建/列出项目 |\n| `document_id` | 一份逻辑文档，例如技术响应书；多个修订共用 | 上传新文档 |\n| `revision_id` | 某一次不可变的 PDF 文件版本 | 上传或列出修订 |\n| `job_id` | 后台处理这份文件的任务 | 上传接口 |\n| `artifact_id` | 某修订按某解析配置生成的结果 | 查询成功任务 |\n\n`block_id` 是某个产物内部的文字块编号，必须与其 `artifact_id` 配套使用。示例 ID 只说明格式，实际调用时请替换为接口真实返回的 ID。\n\n### 需要正确理解的状态\n\n- HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。\n- `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。\n- `NEEDS_REVIEW`：产物需要人工检查；MinerU 是否运行 OCR 由实际解析模式决定，不能据此证明没有漏字或表格语义正确。\n- `formal_review_ready=false`：解析结果尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。\n- `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。\n- `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。\n\n项目业务接口需要 `X-API-Key` 或有效浏览器登录 Cookie。网页登录入口为 `/workspace`；Cookie 由登录接口设置，写请求还必须带与本站一致的 `Origin`，不能手工把 API Key 填进 Cookie。健康检查、登录及退出不要求已有会话。找不到对象和无权访问对象统一返回 **404**。\n",
+    "version": "0.7.0"
   },
   "paths": {
     "/health/live": {
@@ -568,7 +568,7 @@
           "02 文档与修订"
         ],
         "summary": "查看一份文档的全部历史修订",
-        "description": "**用途**：查看一份逻辑文档有哪些历史 PDF 版本，确认每个版本的修订号、文件 hash 和处理状态。\n\n**返回**：200，按 revision_no 从小到大排列的数组。字段 id 是 revision_id，不是 document_id。\n\n**状态**：NEEDS_REVIEW 表示文字层探针完成但质量待检查；不能据此判断材料是否满足招标要求。created_at 是 UTC 时间，当前无时区后缀。\n\n**边界**：本接口不返回 job_id；日常调用请保存上传响应中的 job_id。当前列表不分页。",
+        "description": "**用途**：查看一份逻辑文档有哪些历史 PDF 版本，确认每个版本的修订号、文件 hash 和处理状态。\n\n**返回**：200，按 revision_no 从小到大排列的数组。字段 id 是 revision_id，不是 document_id。\n\n**状态**：NEEDS_REVIEW 表示解析完成但质量待检查；不能据此判断材料是否满足招标要求。created_at 是 UTC 时间，当前无时区后缀。\n\n**边界**：本接口不返回 job_id；日常调用请保存上传响应中的 job_id。当前列表不分页。",
         "operationId": "list_revisions",
         "security": [
           {
@@ -666,7 +666,7 @@
           "03 后台任务"
         ],
         "summary": "查询后台解析任务状态及产物 ID",
-        "description": "**用途**：跟踪上传后后台处理的结果。建议每 1–2 秒查询一次，收到 SUCCEEDED 或 FAILED 后停止轮询；可按网络情况放慢频率。\n\n| status | 含义 | 调用方下一步 |\n|---|---|---|\n| QUEUED | 已登记，等待 Worker | 继续等待 |\n| RUNNING | Worker 已领取并处理 | 继续等待 |\n| RETRY_WAIT | 暂时失败，等待自动重试 | 继续等待，观察 error_code |\n| SUCCEEDED | 技术处理完成 | 使用 artifact_id 查询产物 |\n| FAILED | 最终失败 | 查看 error_code/error_detail，检查材料或运维原因 |\n\nattempt 是已领取执行次数，初始 0。当前任务可能没有百分比进度，也没有公开的手动取消/重试接口。若任务长期排队，需检查 dispatcher、Redis 和 Worker。\n\n**不要混淆**：HTTP 200 表示成功查到了任务，即使任务自身 status=FAILED。SUCCEEDED 也不是投标业务审核通过。",
+        "description": "**用途**：跟踪上传后后台处理的结果。建议每 1–2 秒查询一次，收到 SUCCEEDED 或 FAILED 后停止轮询；可按网络情况放慢频率。\n\n| status | 含义 | 调用方下一步 |\n|---|---|---|\n| QUEUED | 已登记，等待 Worker | 继续等待 |\n| RUNNING | Worker 已领取并处理 | 继续等待 |\n| RETRY_WAIT | 暂时失败，等待自动重试 | 继续等待，观察 error_code |\n| SUCCEEDED | 技术处理完成 | 使用 artifact_id 查询产物 |\n| FAILED | 最终失败 | 查看 error_code/error_detail，检查材料或运维原因 |\n\nattempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；失败后可通过修订的重新解析接口明确重试。要求抽取另有取消/重试接口。若任务长期排队，需检查 dispatcher、Redis 和 Worker。\n\n**不要混淆**：HTTP 200 表示成功查到了任务，即使任务自身 status=FAILED。SUCCEEDED 也不是投标业务审核通过。",
         "operationId": "get_job",
         "security": [
           {
@@ -760,7 +760,7 @@
           "04 解析结果"
         ],
         "summary": "查看解析概况、页数和质量提示",
-        "description": "**用途**：读取某个成功任务的解析概况：文件修订、页数、来源块数、解析配置和质量提示。\n\n**前置**：从成功任务取得 artifact_id。无权限或 ID 不存在返回 404。\n\n**当前产物**：pdfplumber-probe-v1 只处理 PDF 文字层，文字块大体按行划分；block_count 不是要求数。所有结果为 NEEDS_REVIEW、formal_review_ready=false。\n\n**质量提示**：NO_EXTRACTABLE_TEXT 可能表示扫描件没有文字层；PAGES_NEED_ATTENTION 表示部分页待检查。即使技术任务成功，也可能没有可用文字。下一步查询 blocks，并回到原件检查。",
+        "description": "**用途**：读取某个成功任务的解析概况：文件修订、页数、来源块数、解析配置和质量提示。\n\n**前置**：从成功任务取得 artifact_id。无权限或 ID 不存在返回 404。\n\n**当前产物**：新任务默认使用MinerU4.0.12 Flash/auto，自动选择文字或OCR；历史pdfplumber-probe-v1仍按原配置读取。block_count不是要求数，MinerU块可能是段落、列表或整表。所有结果为 NEEDS_REVIEW、formal_review_ready=false。\n\n**质量提示**：NO_EXTRACTABLE_TEXT 可能表示扫描件没有文字层；PAGES_NEED_ATTENTION 表示部分页待检查。即使技术任务成功，也可能没有可用文字。下一步查询 blocks，并回到原件检查。",
         "operationId": "get_artifact",
         "security": [
           {
@@ -5641,6 +5641,159 @@
           }
         }
       }
+    },
+    "/api/v1/revisions/{revision_id}/parse": {
+      "post": {
+        "tags": [
+          "02 文档与修订"
+        ],
+        "summary": "用当前解析配置重新解析原 PDF，保留旧产物与引用",
+        "description": "**业务场景**：已有PDF曾用旧文字层探针解析，升级MinerU后需要生成新结果，无需重新上传或伪造文件修订。仅OWNER/EDITOR，使用幂等键、项目锁和revision/profile去重；相同配置直接复用任务，明确retry_failed时才重试失败任务。202只表示登记成功，随后查询job_id。网络和模型推理在Worker执行。新产物不继承旧质量意见，不覆盖已有要求出处、正式材料、基线或审查结论；仍须打开原件核对后明确采用。",
+        "operationId": "reparse_revision",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          },
+          {
+            "BrowserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "revision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "已有不可变PDF修订ID，从文件列表取得。",
+              "title": "Revision Id"
+            },
+            "description": "已有不可变PDF修订ID，从文件列表取得。"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "description": "本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。",
+              "title": "Idempotency-Key"
+            },
+            "description": "本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReparseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReparseResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "A valid API key or browser session is required"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project role cannot perform this action"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project not found"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project inputs changed; refresh workspace and recheck the current sources"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "type": "missing",
+                      "loc": [
+                        "header",
+                        "idempotency-key"
+                      ],
+                      "msg": "Field required"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Stored original is unavailable"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5689,7 +5842,7 @@
           "parser_profile": {
             "type": "string",
             "title": "Parser Profile",
-            "description": "解析配置版本。当前 pdfplumber-probe-v1 只提取文字层及坐标，不验证表格语义或扫描件 OCR。",
+            "description": "解析配置版本；默认mineru-4.0.12-flash-auto-v1，历史产物保留旧配置，重解析不覆盖原件或引用。",
             "examples": [
               "pdfplumber-probe-v1"
             ]
@@ -5707,7 +5860,7 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Block Count",
-            "description": "生成的文字来源块总数。当前通常一行文字为一个块；不是要求数量或 RAG chunk 数量。",
+            "description": "生成的文字来源块总数。MinerU以段落/列表/表格等顶层块承载正文，旧探针通常按行；不是要求数量或RAG chunk数量。",
             "examples": [
               1806
             ]
@@ -5726,7 +5879,7 @@
             },
             "type": "array",
             "title": "Quality Flags",
-            "description": "质量提示代码。PROVISIONAL_TEXT_LAYER_ONLY 仅文字层；TABLE_STRUCTURE_NOT_VALIDATED 表格未验证；OCR_NOT_PERFORMED 未做 OCR；NO_EXTRACTABLE_TEXT 没有可提取文字；PAGES_NEED_ATTENTION 有页面需人工检查。",
+            "description": "质量提示代码。MINERU_FLASH/BASIC 为档位；NATIVE_TEXT_MODE/OCR_PERFORMED为实际模式；TABLE_TEXT_FLATTENED表示表格文字已展平；旧探针提示仍保留。NO_EXTRACTABLE_TEXT及PAGES_NEED_ATTENTION须人工检查。",
             "examples": [
               [
                 "PROVISIONAL_TEXT_LAYER_ONLY",
@@ -5911,7 +6064,7 @@
           "text": {
             "type": "string",
             "title": "Text",
-            "description": "提取出的该行原文。用于阅读及来源验证，不是模型生成的回答。",
+            "description": "提取出的该块原文。用于阅读及来源验证，不是模型生成的回答。",
             "examples": [
               "测试示例：投标文件应在约定截止时间前提交。"
             ]
@@ -6480,6 +6633,30 @@
             "title": "Artifact Id",
             "description": "成功解析后的产物 ID，选原文和正式材料时使用。"
           },
+          "parser_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Profile",
+            "description": "当前可查看产物的解析配置；新任务未完成时可保留最近成功的历史产物。"
+          },
+          "job_parser_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Parser Profile",
+            "description": "最近请求的解析配置，与当前可查看产物可能不同。"
+          },
           "page_count": {
             "anyOf": [
               {
@@ -6516,6 +6693,8 @@
           "job_status",
           "error_detail",
           "artifact_id",
+          "parser_profile",
+          "job_parser_profile",
           "page_count",
           "block_count"
         ],
@@ -6846,7 +7025,7 @@
             "type": "boolean",
             "const": false,
             "title": "Formal Review Ready",
-            "description": "当前固定为 false：解析只提取文字层，模型只建议要求候选，均不具备自动审查能力；人工引用时须核对原件。",
+            "description": "当前固定为 false：解析生成文字或OCR来源，要求模型只建议候选，均不具备自动审查能力；人工引用时须核对原件。",
             "examples": [
               false
             ]
@@ -7081,7 +7260,7 @@
           "parser_profile": {
             "type": "string",
             "title": "Parser Profile",
-            "description": "冻结的解析配置版本；当前仍为文字层探针，需人工核对。"
+            "description": "冻结的解析配置版本；MinerU与历史探针产物可共存，均需人工核对。"
           }
         },
         "type": "object",
@@ -7441,6 +7620,50 @@
           "formal_review_ready"
         ],
         "title": "ReadyResponse"
+      },
+      "ReparseInput": {
+        "properties": {
+          "retry_failed": {
+            "type": "boolean",
+            "title": "Retry Failed",
+            "description": "明确重试本配置已失败的解析任务；完成或活动任务直接复用。不是删除重跑。",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ReparseInput"
+      },
+      "ReparseResponse": {
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "title": "Revision Id",
+            "description": "不变的原 PDF 修订 ID；重解析不创建新文件修订。"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id",
+            "description": "该修订及配置对应的后台解析任务 ID。"
+          },
+          "parser_profile": {
+            "type": "string",
+            "title": "Parser Profile",
+            "description": "本次冻结的解析配置；MinerU版本、档位、模式和适配规则分别固定。"
+          },
+          "reused": {
+            "type": "boolean",
+            "title": "Reused",
+            "description": "是否复用已有的同配置任务。"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision_id",
+          "job_id",
+          "parser_profile",
+          "reused"
+        ],
+        "title": "ReparseResponse"
       },
       "RequirementDecisionInput": {
         "properties": {
@@ -8096,7 +8319,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "文件处理状态：UPLOADED 已接收；PARSING 处理中；NEEDS_REVIEW 已完成文字层探针但待检查；RETRY_WAIT 等待重试；PARSE_FAILED 处理失败。",
+            "description": "文件处理状态：UPLOADED 已接收；PARSING 处理中；NEEDS_REVIEW 已解析但待人工质量核对；RETRY_WAIT 等待重试；PARSE_FAILED 处理失败。",
             "examples": [
               "NEEDS_REVIEW"
             ]
@@ -9067,7 +9290,7 @@
     },
     {
       "name": "04 解析结果",
-      "description": "任务成功后读取解析概况和文字来源块。当前为文字层探针。"
+      "description": "任务成功后读取解析概况和文字来源块；新任务默认MinerU，历史产物保留原配置。"
     },
     {
       "name": "05 来源追溯",

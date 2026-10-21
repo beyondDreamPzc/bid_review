@@ -1,6 +1,6 @@
 # 投标审查系统：中文接口使用手册
 
-适用版本：0.6.0。由当前应用的 OpenAPI 自动生成。
+适用版本：0.7.0。由当前应用的 OpenAPI 自动生成。
 
 先读 [业务流程与接口](业务流程与接口.md)，理解谁在什么场景调用接口，再查本手册的参数。
 
@@ -36,8 +36,8 @@
 
 - HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。
 - `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。
-- `NEEDS_REVIEW`：产物需要检查；当前尚未验证表格语义，也没有运行 OCR。
-- `formal_review_ready=false`：文字层探针尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。
+- `NEEDS_REVIEW`：产物需要人工检查；MinerU 是否运行 OCR 由实际解析模式决定，不能据此证明没有漏字或表格语义正确。
+- `formal_review_ready=false`：解析结果尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。
 - `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。
 - `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。
 
@@ -119,6 +119,7 @@ flowchart LR
 | POST | `/api/v1/projects/{project_id}/extraction-runs/{run_id}/cancel` | 取消活动抽取任务并阻止后续候选发布 |
 | GET | `/api/v1/projects/{project_id}/requirement-candidates` | 分页阅读模型候选、出处与人工处理状态 |
 | POST | `/api/v1/projects/{project_id}/requirement-candidates/{candidate_id}/decisions` | 人工修改并采纳候选为要求草稿，或说明原因忽略 |
+| POST | `/api/v1/revisions/{revision_id}/parse` | 用当前解析配置重新解析原 PDF，保留旧产物与引用 |
 
 ## 1. 创建一次投标工作的项目空间
 
@@ -581,7 +582,7 @@ flowchart LR
 
 **返回**：200，按 revision_no 从小到大排列的数组。字段 id 是 revision_id，不是 document_id。
 
-**状态**：NEEDS_REVIEW 表示文字层探针完成但质量待检查；不能据此判断材料是否满足招标要求。created_at 是 UTC 时间，当前无时区后缀。
+**状态**：NEEDS_REVIEW 表示解析完成但质量待检查；不能据此判断材料是否满足招标要求。created_at 是 UTC 时间，当前无时区后缀。
 
 **边界**：本接口不返回 job_id；日常调用请保存上传响应中的 job_id。当前列表不分页。
 
@@ -609,7 +610,7 @@ flowchart LR
 | `id` | string | 不可变修订 ID，可作为下载原件接口的 revision_id。 |
 | `revision_no` | integer | 文档内修订号，按此字段升序返回。 |
 | `sha256` | string | 该修订原始 PDF 字节的 SHA-256。 |
-| `status` | string | 文件处理状态：UPLOADED 已接收；PARSING 处理中；NEEDS_REVIEW 已完成文字层探针但待检查；RETRY_WAIT 等待重试；PARSE_FAILED 处理失败。 |
+| `status` | string | 文件处理状态：UPLOADED 已接收；PARSING 处理中；NEEDS_REVIEW 已解析但待人工质量核对；RETRY_WAIT 等待重试；PARSE_FAILED 处理失败。 |
 | `created_at` | string (date-time) | 修订登记时间，使用 UTC。当前返回值不带时区后缀，请按 UTC 解释；北京时间需加 8 小时。 |
 
 **格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
@@ -640,7 +641,7 @@ flowchart LR
 | SUCCEEDED | 技术处理完成 | 使用 artifact_id 查询产物 |
 | FAILED | 最终失败 | 查看 error_code/error_detail，检查材料或运维原因 |
 
-attempt 是已领取执行次数，初始 0。当前任务可能没有百分比进度，也没有公开的手动取消/重试接口。若任务长期排队，需检查 dispatcher、Redis 和 Worker。
+attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；失败后可通过修订的重新解析接口明确重试。要求抽取另有取消/重试接口。若任务长期排队，需检查 dispatcher、Redis 和 Worker。
 
 **不要混淆**：HTTP 200 表示成功查到了任务，即使任务自身 status=FAILED。SUCCEEDED 也不是投标业务审核通过。
 
@@ -671,7 +672,7 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 | `artifact_id` | string / null | PDF解析成功后的产物 ID；要求抽取任务使用专门的 extraction-runs 接口查看候选，此字段可以为空。 |
 | `error_code` | string / null | 最近错误代码：PDF_REJECTED 文件不可处理；PROCESSING_ERROR 解析异常；LEASE_EXPIRED 租约过期；MODEL_* 或 EXTRACTION_* 表示候选抽取错误，具体看抽取任务接口。无错误或成功后为 null。 |
 | `error_detail` | string / null | 可用于定位失败原因的简短信息。不会返回完整文档、密钥或服务器存储路径。 |
-| `formal_review_ready` | boolean | 当前固定为 false：解析只提取文字层，模型只建议要求候选，均不具备自动审查能力；人工引用时须核对原件。 |
+| `formal_review_ready` | boolean | 当前固定为 false：解析生成文字或OCR来源，要求模型只建议候选，均不具备自动审查能力；人工引用时须核对原件。 |
 
 **格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
 
@@ -695,7 +696,7 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 
 **前置**：从成功任务取得 artifact_id。无权限或 ID 不存在返回 404。
 
-**当前产物**：pdfplumber-probe-v1 只处理 PDF 文字层，文字块大体按行划分；block_count 不是要求数。所有结果为 NEEDS_REVIEW、formal_review_ready=false。
+**当前产物**：新任务默认使用MinerU4.0.12 Flash/auto，自动选择文字或OCR；历史pdfplumber-probe-v1仍按原配置读取。block_count不是要求数，MinerU块可能是段落、列表或整表。所有结果为 NEEDS_REVIEW、formal_review_ready=false。
 
 **质量提示**：NO_EXTRACTABLE_TEXT 可能表示扫描件没有文字层；PAGES_NEED_ATTENTION 表示部分页待检查。即使技术任务成功，也可能没有可用文字。下一步查询 blocks，并回到原件检查。
 
@@ -723,11 +724,11 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 | `id` | string | 解析产物 ID。一个产物代表某个文件修订使用某套解析配置生成的结果。 |
 | `revision_id` | string | 该产物来源的不可变文件修订 ID。 |
 | `revision_sha256` | string | 来源 PDF 原始字节的 SHA-256，可用于核对引用版本。 |
-| `parser_profile` | string | 解析配置版本。当前 pdfplumber-probe-v1 只提取文字层及坐标，不验证表格语义或扫描件 OCR。 |
+| `parser_profile` | string | 解析配置版本；默认mineru-4.0.12-flash-auto-v1，历史产物保留旧配置，重解析不覆盖原件或引用。 |
 | `page_count` | integer | 原 PDF 的实际页数，包含无文字层页面。 |
-| `block_count` | integer | 生成的文字来源块总数。当前通常一行文字为一个块；不是要求数量或 RAG chunk 数量。 |
+| `block_count` | integer | 生成的文字来源块总数。MinerU以段落/列表/表格等顶层块承载正文，旧探针通常按行；不是要求数量或RAG chunk数量。 |
 | `quality_status` | string | 当前固定为 NEEDS_REVIEW，表示需要检查解析质量，不是人工审查已通过。 |
-| `quality_flags` | 数组<string> | 质量提示代码。PROVISIONAL_TEXT_LAYER_ONLY 仅文字层；TABLE_STRUCTURE_NOT_VALIDATED 表格未验证；OCR_NOT_PERFORMED 未做 OCR；NO_EXTRACTABLE_TEXT 没有可提取文字；PAGES_NEED_ATTENTION 有页面需人工检查。 |
+| `quality_flags` | 数组<string> | 质量提示代码。MINERU_FLASH/BASIC 为档位；NATIVE_TEXT_MODE/OCR_PERFORMED为实际模式；TABLE_TEXT_FLATTENED表示表格文字已展平；旧探针提示仍保留。NO_EXTRACTABLE_TEXT及PAGES_NEED_ATTENTION须人工检查。 |
 | `formal_review_ready` | boolean | 当前固定为 false；产物存在不代表自动模型可判断投标满足，人工仍需核对原件。 |
 
 **格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
@@ -791,7 +792,7 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 | `block_id` | string | 当前产物内的块 ID，例如 p0003-b0004 为第 3 页第 4 个文字块。只能与本 artifact_id 配合使用。 |
 | `page` | integer | PDF 实际页序号，从 1 开始；可能与页面印刷的页码不相同。 |
 | `bbox` | 数组<number> | 文字在该 PDF 页上的矩形位置：[左、上、右、下]。单位为 PDF point（1/72 英寸），原点在页面左上角；不是屏幕像素，前端缩放时需要换算。 |
-| `text` | string | 提取出的该行原文。用于阅读及来源验证，不是模型生成的回答。 |
+| `text` | string | 提取出的该块原文。用于阅读及来源验证，不是模型生成的回答。 |
 | `text_hash` | string | 该块 text 按 UTF-8 编码计算的 SHA-256，用于检查文字是否改变。 |
 
 **格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
@@ -3137,6 +3138,8 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
           "job_status": "示例",
           "error_detail": "示例",
           "artifact_id": "示例",
+          "parser_profile": "示例",
+          "job_parser_profile": "示例",
           "page_count": 1,
           "block_count": 1
         }
@@ -4347,6 +4350,65 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 }
 ```
 
+## 52. 用当前解析配置重新解析原 PDF，保留旧产物与引用
+
+`POST /api/v1/revisions/{revision_id}/parse`
+
+**业务场景**：已有PDF曾用旧文字层探针解析，升级MinerU后需要生成新结果，无需重新上传或伪造文件修订。仅OWNER/EDITOR，使用幂等键、项目锁和revision/profile去重；相同配置直接复用任务，明确retry_failed时才重试失败任务。202只表示登记成功，随后查询job_id。网络和模型推理在Worker执行。新产物不继承旧质量意见，不覆盖已有要求出处、正式材料、基线或审查结论；仍须打开原件核对后明确采用。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `revision_id` | path | 是 | string | — | 已有不可变PDF修订ID，从文件列表取得。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `retry_failed` | 否 | boolean | 默认=False | 明确重试本配置已失败的解析任务；完成或活动任务直接复用。不是删除重跑。 |
+
+```json
+{
+  "retry_failed": false
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 202 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `revision_id` | string | 不变的原 PDF 修订 ID；重解析不创建新文件修订。 |
+| `job_id` | string | 该修订及配置对应的后台解析任务 ID。 |
+| `parser_profile` | string | 本次冻结的解析配置；MinerU版本、档位、模式和适配规则分别固定。 |
+| `reused` | boolean | 是否复用已有的同配置任务。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "revision_id": "示例",
+  "job_id": "示例",
+  "parser_profile": "示例",
+  "reused": false
+}
+```
+
 ## 状态和常见问题速查
 
 | 现象 | 解释与处理 |
@@ -4354,12 +4416,12 @@ attempt 是已领取执行次数，初始 0。当前任务可能没有百分比�
 | `202` 后马上查不到 artifact_id | 正常：任务仍在排队或处理中，继续查 job |
 | `200` 但 job.status 是 FAILED | 查询任务成功，任务执行失败；查看 error_code 和 error_detail |
 | `SUCCEEDED` 但 formal_review_ready=false | 文字层提取完成但不具备自动审查能力，人工闭环可继续并回看原件 |
-| `NEEDS_REVIEW` | 当前解析结果都需要人工检查，尚未验证 OCR 和表格语义 |
+| `NEEDS_REVIEW` | 解析结果都需要人工检查；OCR已执行不等于无错漏，表格语义仍需核对 |
 | `404` | ID 错误、ID 用错类型，或当前身份没有项目权限 |
 | `409` | 幂等键内容冲突，或基线/材料/epoch/任务状态变化；刷新并重新核对 |
 | 下载原件链接直接打开得到 `401` | 先在本站工作台登录以取得 Cookie，或使用 X-API-Key 客户端；Cookie 过期时重新登录 |
 | 列表返回 `[]` | 该身份没有项目，或者页码/offset 没有匹配项；不一定是接口失败 |
-| 扫描 PDF 技术任务成功，但文字块为 0 | 没有可提取的文字层；当前未执行 OCR，需检查质量提示 |
+| 扫描 PDF 技术任务成功，但文字块为 0 | 核对产物所用解析配置、实际OCR标记和模型可用性；不把零文字自动视为空白 |
 
 ## 最小 Python 调用例子
 

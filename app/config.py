@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     lease_seconds: int = 120
     job_max_attempts: int = 3
     dispatch_stale_seconds: int = 120
-    parser_profile: str = "pdfplumber-probe-v1"
+    parser_profile: str = "mineru-4.0.12-flash-auto-v1"
+    mineru_python: str = "/opt/mineru/bin/python"
+    mineru_timeout_seconds: int = Field(default=900,ge=10,le=3600)
+    mineru_max_result_bytes: int = Field(default=50*1024*1024,ge=1024,le=200*1024*1024)
     demo_enabled: bool = False
     llm_enabled: bool = False
     llm_base_url: str = "https://api.openai.com/v1"

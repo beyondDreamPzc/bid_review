@@ -32,8 +32,8 @@ API_DESCRIPTION = """
 
 - HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。
 - `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。
-- `NEEDS_REVIEW`：产物需要检查；当前尚未验证表格语义，也没有运行 OCR。
-- `formal_review_ready=false`：文字层探针尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。
+- `NEEDS_REVIEW`：产物需要人工检查；MinerU 是否运行 OCR 由实际解析模式决定，不能据此证明没有漏字或表格语义正确。
+- `formal_review_ready=false`：解析结果尚不支持自动审查。人工业务和可选要求候选抽取可以引用文字块，但必须回看原件；Milvus、模型审查和更正影响分析尚未接入。
 - `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。
 - `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。
 
@@ -46,7 +46,7 @@ TAGS = [
     {"name": "01 项目管理", "description": "先建项目，再上传该项目的投标材料。不同项目按成员权限隔离。"},
     {"name": "02 文档与修订", "description": "新文档建立逻辑身份；新修订保留同一身份下的新 PDF。旧文件不覆盖。"},
     {"name": "03 后台任务", "description": "上传后在这里查询排队、处理、重试和成功/失败状态。"},
-    {"name": "04 解析结果", "description": "任务成功后读取解析概况和文字来源块。当前为文字层探针。"},
+    {"name": "04 解析结果", "description": "任务成功后读取解析概况和文字来源块；新任务默认MinerU，历史产物保留原配置。"},
     {"name": "05 来源追溯", "description": "取得引用的文件版本、页码、坐标及原件，供人工核对。"},
     {"name": "06 服务状态", "description": "运维健康检查，不需要 API Key。"},
     {"name": "07 成员与工作台", "description": "建立编写、审查、只读角色，查询当前业务输入版本。"},
@@ -131,7 +131,7 @@ DESCRIPTIONS = {
 
 **返回**：200，按 revision_no 从小到大排列的数组。字段 id 是 revision_id，不是 document_id。
 
-**状态**：NEEDS_REVIEW 表示文字层探针完成但质量待检查；不能据此判断材料是否满足招标要求。created_at 是 UTC 时间，当前无时区后缀。
+**状态**：NEEDS_REVIEW 表示解析完成但质量待检查；不能据此判断材料是否满足招标要求。created_at 是 UTC 时间，当前无时区后缀。
 
 **边界**：本接口不返回 job_id；日常调用请保存上传响应中的 job_id。当前列表不分页。""",
     "get_job": """**用途**：跟踪上传后后台处理的结果。建议每 1–2 秒查询一次，收到 SUCCEEDED 或 FAILED 后停止轮询；可按网络情况放慢频率。
@@ -144,14 +144,14 @@ DESCRIPTIONS = {
 | SUCCEEDED | 技术处理完成 | 使用 artifact_id 查询产物 |
 | FAILED | 最终失败 | 查看 error_code/error_detail，检查材料或运维原因 |
 
-attempt 是已领取执行次数，初始 0。当前任务可能没有百分比进度，也没有公开的手动取消/重试接口。若任务长期排队，需检查 dispatcher、Redis 和 Worker。
+attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；失败后可通过修订的重新解析接口明确重试。要求抽取另有取消/重试接口。若任务长期排队，需检查 dispatcher、Redis 和 Worker。
 
 **不要混淆**：HTTP 200 表示成功查到了任务，即使任务自身 status=FAILED。SUCCEEDED 也不是投标业务审核通过。""",
     "get_artifact": """**用途**：读取某个成功任务的解析概况：文件修订、页数、来源块数、解析配置和质量提示。
 
 **前置**：从成功任务取得 artifact_id。无权限或 ID 不存在返回 404。
 
-**当前产物**：pdfplumber-probe-v1 只处理 PDF 文字层，文字块大体按行划分；block_count 不是要求数。所有结果为 NEEDS_REVIEW、formal_review_ready=false。
+**当前产物**：新任务默认使用MinerU4.0.12 Flash/auto，自动选择文字或OCR；历史pdfplumber-probe-v1仍按原配置读取。block_count不是要求数，MinerU块可能是段落、列表或整表。所有结果为 NEEDS_REVIEW、formal_review_ready=false。
 
 **质量提示**：NO_EXTRACTABLE_TEXT 可能表示扫描件没有文字层；PAGES_NEED_ATTENTION 表示部分页待检查。即使技术任务成功，也可能没有可用文字。下一步查询 blocks，并回到原件检查。""",
     "list_blocks": """**用途**：分页读取提取的文字与位置，为人工阅读、来源核对和后续检索准备数据。

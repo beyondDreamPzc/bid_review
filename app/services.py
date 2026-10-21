@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models import (AuditEvent, Document, DocumentRevision, IdempotencyRecord, Job,
                         OutboxEvent, Project, ProjectMember, User)
 from app.storage import BlobStore, sha256
+from app.parsers import PROFILE, PARSE_JOB_KINDS
 
 
 def project_access(db: Session, project_id: str, user: User, write: bool = False) -> Project:
@@ -45,7 +46,7 @@ def ingest_pdf(db: Session, store: BlobStore, user: User, project_id: str,
             DocumentRevision.document_id == document_id,
             DocumentRevision.sha256 == content_hash).with_for_update())
         if prior_revision:
-            job = db.scalar(select(Job).where(Job.revision_id == prior_revision.id, Job.kind == "PDF_TEXT_PROBE")
+            job = db.scalar(select(Job).where(Job.revision_id == prior_revision.id, Job.kind.in_(PARSE_JOB_KINDS))
                             .order_by(Job.created_at.desc(), Job.id).limit(1))
             result = {"document_id": document.id, "revision_id": prior_revision.id,
                       "revision_no": prior_revision.revision_no, "job_id": job.id,
@@ -69,7 +70,7 @@ def ingest_pdf(db: Session, store: BlobStore, user: User, project_id: str,
                                 byte_size=len(content), uploaded_by=user.id, source_url=source_url)
     db.add(revision)
     db.flush()
-    job = Job(project_id=project_id, revision_id=revision.id,
+    job = Job(project_id=project_id, revision_id=revision.id,kind="PDF_TEXT_PROBE" if profile==PROFILE else "PDF_PARSE",
               dedup_key=f"parse:{revision.id}:{profile}", parser_profile=profile)
     db.add(job)
     db.flush()

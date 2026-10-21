@@ -1,5 +1,6 @@
 """仅供合成 HTTP 契约验收，绝不是真实模型或运行时后备服务。无宿主机端口。"""
 import json
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
 
@@ -33,9 +34,9 @@ class Handler(BaseHTTPRequestHandler):
         blocks=json.loads(body["messages"][1]["content"])["untrusted_document_blocks"]
         candidates=[]
         for b in blocks:
-            if "响应时限：" in b["text"]:
+            if "响应时限:" in unicodedata.normalize("NFKC",b["text"]):
                 title,text="响应时限候选（合成验收）","接报后应在2小时内响应。"
-            elif "培训服务：" in b["text"]:
+            elif "培训服务:" in unicodedata.normalize("NFKC",b["text"]):
                 title,text="培训次数候选（合成验收）","应提供不少于2次操作培训。"
             else:continue
             candidates.append({"title":title,"text":text,"category":"TECHNICAL","priority":"GENERAL",

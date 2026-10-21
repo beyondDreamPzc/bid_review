@@ -60,7 +60,7 @@ class RevisionResponse(BaseModel):
     id: str = Field(description="不可变修订 ID，可作为下载原件接口的 revision_id。", examples=[REVISION_ID])
     revision_no: int = Field(description="文档内修订号，按此字段升序返回。", examples=[1])
     sha256: str = Field(description="该修订原始 PDF 字节的 SHA-256。", examples=[HASH])
-    status: str = Field(description="文件处理状态：UPLOADED 已接收；PARSING 处理中；NEEDS_REVIEW 已完成文字层探针但待检查；RETRY_WAIT 等待重试；PARSE_FAILED 处理失败。", examples=["NEEDS_REVIEW"])
+    status: str = Field(description="文件处理状态：UPLOADED 已接收；PARSING 处理中；NEEDS_REVIEW 已解析但待人工质量核对；RETRY_WAIT 等待重试；PARSE_FAILED 处理失败。", examples=["NEEDS_REVIEW"])
     created_at: datetime = Field(description="修订登记时间，使用 UTC。当前返回值不带时区后缀，请按 UTC 解释；北京时间需加 8 小时。", examples=["2026-10-19T08:19:43"])
 
 
@@ -71,18 +71,18 @@ class JobResponse(BaseModel):
     artifact_id: str | None = Field(description="PDF解析成功后的产物 ID；要求抽取任务使用专门的 extraction-runs 接口查看候选，此字段可以为空。", examples=[ARTIFACT_ID])
     error_code: str | None = Field(description="最近错误代码：PDF_REJECTED 文件不可处理；PROCESSING_ERROR 解析异常；LEASE_EXPIRED 租约过期；MODEL_* 或 EXTRACTION_* 表示候选抽取错误，具体看抽取任务接口。无错误或成功后为 null。", examples=[None])
     error_detail: str | None = Field(description="可用于定位失败原因的简短信息。不会返回完整文档、密钥或服务器存储路径。", examples=[None])
-    formal_review_ready: Literal[False] = Field(description="当前固定为 false：解析只提取文字层，模型只建议要求候选，均不具备自动审查能力；人工引用时须核对原件。", examples=[False])
+    formal_review_ready: Literal[False] = Field(description="当前固定为 false：解析生成文字或OCR来源，要求模型只建议候选，均不具备自动审查能力；人工引用时须核对原件。", examples=[False])
 
 
 class ArtifactResponse(BaseModel):
     id: str = Field(description="解析产物 ID。一个产物代表某个文件修订使用某套解析配置生成的结果。", examples=[ARTIFACT_ID])
     revision_id: str = Field(description="该产物来源的不可变文件修订 ID。", examples=[REVISION_ID])
     revision_sha256: str = Field(description="来源 PDF 原始字节的 SHA-256，可用于核对引用版本。", examples=[HASH])
-    parser_profile: str = Field(description="解析配置版本。当前 pdfplumber-probe-v1 只提取文字层及坐标，不验证表格语义或扫描件 OCR。", examples=["pdfplumber-probe-v1"])
+    parser_profile: str = Field(description="解析配置版本；默认mineru-4.0.12-flash-auto-v1，历史产物保留旧配置，重解析不覆盖原件或引用。", examples=["pdfplumber-probe-v1"])
     page_count: int = Field(description="原 PDF 的实际页数，包含无文字层页面。", ge=0, examples=[65])
-    block_count: int = Field(description="生成的文字来源块总数。当前通常一行文字为一个块；不是要求数量或 RAG chunk 数量。", ge=0, examples=[1806])
+    block_count: int = Field(description="生成的文字来源块总数。MinerU以段落/列表/表格等顶层块承载正文，旧探针通常按行；不是要求数量或RAG chunk数量。", ge=0, examples=[1806])
     quality_status: str = Field(description="当前固定为 NEEDS_REVIEW，表示需要检查解析质量，不是人工审查已通过。", examples=["NEEDS_REVIEW"])
-    quality_flags: list[str] = Field(description="质量提示代码。PROVISIONAL_TEXT_LAYER_ONLY 仅文字层；TABLE_STRUCTURE_NOT_VALIDATED 表格未验证；OCR_NOT_PERFORMED 未做 OCR；NO_EXTRACTABLE_TEXT 没有可提取文字；PAGES_NEED_ATTENTION 有页面需人工检查。", examples=[["PROVISIONAL_TEXT_LAYER_ONLY", "TABLE_STRUCTURE_NOT_VALIDATED", "OCR_NOT_PERFORMED"]])
+    quality_flags: list[str] = Field(description="质量提示代码。MINERU_FLASH/BASIC 为档位；NATIVE_TEXT_MODE/OCR_PERFORMED为实际模式；TABLE_TEXT_FLATTENED表示表格文字已展平；旧探针提示仍保留。NO_EXTRACTABLE_TEXT及PAGES_NEED_ATTENTION须人工检查。", examples=[["PROVISIONAL_TEXT_LAYER_ONLY", "TABLE_STRUCTURE_NOT_VALIDATED", "OCR_NOT_PERFORMED"]])
     formal_review_ready: Literal[False] = Field(description="当前固定为 false；产物存在不代表自动模型可判断投标满足，人工仍需核对原件。", examples=[False])
 
 
@@ -90,7 +90,7 @@ class BlockResponse(BaseModel):
     block_id: str = Field(description="当前产物内的块 ID，例如 p0003-b0004 为第 3 页第 4 个文字块。只能与本 artifact_id 配合使用。", examples=["p0003-b0004"])
     page: int = Field(description="PDF 实际页序号，从 1 开始；可能与页面印刷的页码不相同。", ge=1, examples=[3])
     bbox: BBox
-    text: str = Field(description="提取出的该行原文。用于阅读及来源验证，不是模型生成的回答。", examples=["测试示例：投标文件应在约定截止时间前提交。"])
+    text: str = Field(description="提取出的该块原文。用于阅读及来源验证，不是模型生成的回答。", examples=["测试示例：投标文件应在约定截止时间前提交。"])
     text_hash: str = Field(description="该块 text 按 UTF-8 编码计算的 SHA-256，用于检查文字是否改变。", examples=["a" * 64])
 
 

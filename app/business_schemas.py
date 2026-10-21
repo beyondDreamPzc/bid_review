@@ -109,7 +109,7 @@ class MaterialSnapshot(MaterialSelection):
     title: str = Field(description="文档名称。")
     document_kind: str = Field(description="RESPONSE 或 EVIDENCE。")
     sha256: str = Field(description="原文件 hash。")
-    parser_profile: str = Field(description="冻结的解析配置版本；当前仍为文字层探针，需人工核对。")
+    parser_profile: str = Field(description="冻结的解析配置版本；MinerU与历史探针产物可共存，均需人工核对。")
 
 
 class MaterialSetInput(NonBlank):

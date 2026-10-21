@@ -8,7 +8,7 @@ from app.config import Settings
 from app.database import utcnow
 from app.models import (AuditEvent, DocumentBlock, DocumentRevision, Job, OutboxEvent,
                         ParseArtifact, uid)
-from app.parsers import PROFILE, ParseRejected, probe_pdf
+from app.parsers import PARSE_JOB_KINDS, ParseRejected, parse_pdf
 from app.storage import BlobStore, sha256
 
 
@@ -30,7 +30,7 @@ class Attempt:
 def claim_job(factory, job_id: str, settings: Settings) -> Attempt | None:
     with factory.begin() as db:
         job = db.scalar(select(Job).where(Job.id == job_id).with_for_update())
-        if job is None or job.status != "QUEUED" or job.next_attempt_at > utcnow():
+        if job is None or job.kind not in PARSE_JOB_KINDS or job.status != "QUEUED" or job.next_attempt_at > utcnow():
             return None
         job.status = "RUNNING"
         job.attempt += 1
@@ -57,6 +57,8 @@ def heartbeat(factory, attempt: Attempt, settings: Settings):
 
 
 def persist_result(factory, attempt: Attempt, result: dict, store: BlobStore) -> str:
+    if result["parser_profile"]!=attempt.parser_profile:
+        raise ParseRejected("Parser result profile differs from the frozen task")
     encoded = json.dumps(result, ensure_ascii=False, sort_keys=True).encode()
     artifact_hash = sha256(encoded)
     key = f"artifacts/{attempt.revision_id}/{artifact_hash}.json"
@@ -82,13 +84,14 @@ def persist_result(factory, attempt: Attempt, result: dict, store: BlobStore) ->
         job.lease_until, job.error_code, job.error_detail = None, None, None
         db.get(DocumentRevision, attempt.revision_id).status = "NEEDS_REVIEW"
         db.add(AuditEvent(project_id=attempt.project_id, actor_id=None,
-                          action="PDF_PROBE_COMPLETED", object_id=artifact.id,
+                          action="PDF_PARSE_COMPLETED", object_id=artifact.id,
                           details={"job_id": job.id, "profile": attempt.parser_profile,
                                    "quality_status": result["quality_status"]}))
         return artifact.id
 
 
 def record_failure(factory, attempt: Attempt, settings: Settings, error: Exception):
+    from app.mineru_parser import MinerUUnavailable
     with factory.begin() as db:
         job = owned_job(db, attempt)
         permanent = isinstance(error, (ParseRejected, FileNotFoundError))
@@ -96,6 +99,9 @@ def record_failure(factory, attempt: Attempt, settings: Settings, error: Excepti
         job.error_code = "PDF_REJECTED" if permanent else "PROCESSING_ERROR"
         # Do not expose absolute storage paths, tokens or raw document content.
         job.error_detail = str(error)[:300] if isinstance(error, ParseRejected) else type(error).__name__
+        if isinstance(error,MinerUUnavailable):
+            job.error_code="MINERU_RUNTIME_ERROR"
+            job.error_detail=str(error)[:300]  # Only messages authored by our adapter, never SDK exception bodies.
         job.next_attempt_at = utcnow() + timedelta(seconds=min(60, 2 ** job.attempt))
         job.lease_until = None
         db.get(DocumentRevision, attempt.revision_id).status = "PARSE_FAILED" if job.status == "FAILED" else "RETRY_WAIT"
@@ -112,13 +118,11 @@ def run_job(factory, job_id: str, settings: Settings) -> dict:
     if attempt is None:
         return {"status": "IGNORED"}
     try:
-        if attempt.parser_profile != PROFILE:
-            raise ParseRejected("Unsupported parser profile; no silent parser fallback")
         store = BlobStore(settings.storage_path)
         data = store.read(attempt.storage_key)
         if sha256(data) != attempt.original_hash:
             raise ParseRejected("Original file integrity verification failed")
-        result = probe_pdf(data, settings.max_pdf_pages, lambda: heartbeat(factory, attempt, settings))
+        result = parse_pdf(data, attempt.parser_profile, settings, lambda: heartbeat(factory, attempt, settings))
         heartbeat(factory, attempt, settings)
         artifact_id = persist_result(factory, attempt, result, store)
         return {"status": "SUCCEEDED", "artifact_id": artifact_id}
@@ -149,7 +153,7 @@ def recover_jobs(factory, settings: Settings) -> int:
                 job.status = "FAILED" if job.attempt >= settings.job_max_attempts else "RETRY_WAIT"
                 job.error_code, job.error_detail = "LEASE_EXPIRED", "Worker lease expired"
                 job.next_attempt_at = now
-                if job.status == "FAILED" and job.kind == "PDF_TEXT_PROBE":
+                if job.status == "FAILED" and job.kind in PARSE_JOB_KINDS:
                     db.get(DocumentRevision, job.revision_id).status = "PARSE_FAILED"
             if job.status == "RETRY_WAIT" and job.next_attempt_at <= now:
                 job.status = "QUEUED"
