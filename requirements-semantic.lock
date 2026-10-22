@@ -1,0 +1,12 @@
+# Isolated CPU inference environment; base app requirements are installed first.
+numpy==2.5.4
+onnxruntime==1.31.0
+tokenizers==0.23.3
+huggingface_hub==2.2.0
+flatbuffers==25.12.19
+protobuf==7.36.2
+filelock==3.32.7
+fsspec==2026.9.0
+PyYAML==6.0.3
+tqdm==4.70.1
+hf-xet==1.7.0

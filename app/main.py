@@ -22,6 +22,11 @@ from app.quality_api import router as quality_router
 from app.extraction_api import router as extraction_router
 from app.parse_api import router as parse_router
 from app.retrieval_api import router as retrieval_router
+from app.lifecycle_api import router as lifecycle_router
+from app.account_api import router as account_router
+from app.conversion_api import router as conversion_router
+from app.assistant_api import router as assistant_router
+from app.operations_api import router as operations_router
 from app.models import (AuditEvent, Document, DocumentBlock, DocumentRevision, Job,
                         ParseArtifact, Project, ProjectMember, User)
 from app.services import ingest_pdf, project_access
@@ -32,7 +37,7 @@ from app.schemas import (ARTIFACT_ID, DOCUMENT_ID, JOB_ID, PROJECT_ID, REVISION_
 from app.storage import BlobStore, sha256
 from app.models import IdempotencyRecord
 
-app = FastAPI(title="投标文件审查与资料协同系统", version="0.8.0",
+app = FastAPI(title="投标文件审查与资料协同系统", version="1.0.0",
               summary="可追溯的文档版本、人工要求基线、问题整改与独立复核",
               description=API_DESCRIPTION, openapi_tags=TAGS,
               swagger_ui_parameters={"filter": True, "displayRequestDuration": True,
@@ -76,6 +81,9 @@ def ready(db: DB):
         db.execute(text("SELECT id FROM web_sessions LIMIT 1"))
         db.execute(text("SELECT id FROM page_quality_reviews LIMIT 1"))
         db.execute(text("SELECT id FROM extraction_runs LIMIT 1"))
+        db.execute(text("SELECT id FROM assistant_runs LIMIT 1"))
+        db.execute(text("SELECT id FROM document_conversions LIMIT 1"))
+        db.execute(text("SELECT disabled FROM users LIMIT 1"))
         if get_settings().demo_enabled:
             db.execute(text("SELECT id FROM demo_workspaces LIMIT 1"))
     except Exception:
@@ -282,8 +290,8 @@ def original(revision_id: RevisionPath, db: DB, user: CurrentUser):
         raise HTTPException(404, "Revision not found")
     document_access(db, revision.document_id, user)
     path = BlobStore(get_settings().storage_path).path(revision.storage_key)
-    if not path.is_file():
-        raise HTTPException(503, "Stored original is unavailable")
+    if not path.is_file() or sha256(path.read_bytes())!=revision.sha256:
+        raise HTTPException(503, "Stored original is unavailable or failed integrity verification")
     return FileResponse(path, media_type="application/pdf", filename=f"{revision.id}.pdf",
                         content_disposition_type="inline")
 
@@ -295,6 +303,11 @@ app.include_router(quality_router)
 app.include_router(extraction_router)
 app.include_router(parse_router)
 app.include_router(retrieval_router)
+app.include_router(lifecycle_router)
+app.include_router(account_router)
+app.include_router(conversion_router)
+app.include_router(assistant_router)
+app.include_router(operations_router)
 app.mount("/assets", StaticFiles(directory=FilePath(__file__).parent / "static"), name="frontend")
 
 
@@ -310,7 +323,7 @@ def workspace_home():
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request, exc):
-    if request.url.path == "/api/v1/auth/session":
+    if request.url.path in {"/api/v1/auth/session","/api/v1/account/key"}:
         # Pydantic's default error includes the rejected input; never echo a key.
         return JSONResponse(status_code=422, content={"detail": [
             {k: error[k] for k in ("type", "loc", "msg")} for error in exc.errors()]})

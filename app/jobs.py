@@ -112,6 +112,14 @@ def run_job(factory, job_id: str, settings: Settings) -> dict:
         job=db.get(Job,job_id)
         extraction=job is not None and job.kind=="REQUIREMENT_EXTRACTION"
         indexing=job is not None and job.kind=="MATERIAL_INDEX"
+        converting=job is not None and job.kind=="DOCX_CONVERT"
+        assisting=job is not None and job.kind=="ASSISTANT_REVIEW"
+    if assisting:
+        from app.assistant_service import run_assistant
+        return run_assistant(factory,job_id,settings)
+    if converting:
+        from app.docx_conversion import run_conversion
+        return run_conversion(factory,job_id,settings)
     if indexing:
         from app.retrieval import run_index
         return run_index(factory,job_id,settings)

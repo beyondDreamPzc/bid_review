@@ -24,7 +24,7 @@ async function loadQualityView() {
   const container = $("#quality-body");
   if (!container || !qualityArtifact) return;
   const sequence = ++qualitySequence, artifact = qualityArtifact;
-  container.innerHTML = `<p class="muted">正在读取冻结原文及核对历史…</p>`;
+  container.innerHTML = skeleton("正在读取原文及核对历史");
   try {
     const report = await api(`/api/v1/artifacts/${artifact}/quality`);
     if (sequence !== qualitySequence || !$("#quality-body") || artifact !== qualityArtifact) return;
@@ -33,7 +33,7 @@ async function loadQualityView() {
     renderQualityReport();
   } catch (error) {
     if (sequence === qualitySequence && $("#quality-body")) {
-      $("#quality-body").innerHTML = `<div class="hint warning">质量报告未能读取。请刷新重试；不会把读取失败显示成没有问题。</div>`;
+      $("#quality-body").innerHTML = failureState("质量报告未能读取，不能将读取失败视为没有问题。");
       notice(explain(error), true);
     }
   }

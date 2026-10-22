@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base, utcnow
@@ -16,6 +16,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     name: Mapped[str] = mapped_column(String(120))
     api_key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -97,7 +98,7 @@ class Job(Base):
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
-    revision_id: Mapped[str] = mapped_column(ForeignKey("document_revisions.id"))
+    revision_id: Mapped[str | None] = mapped_column(ForeignKey("document_revisions.id"))
     kind: Mapped[str] = mapped_column(String(30), default="PDF_TEXT_PROBE")
     dedup_key: Mapped[str] = mapped_column(String(200))
     parser_profile: Mapped[str] = mapped_column(String(100))
@@ -149,6 +150,7 @@ class Requirement(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     review_version: Mapped[int] = mapped_column(Integer, default=0)
+    retired: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -215,6 +217,7 @@ class ReviewIssue(Base):
     severity: Mapped[str] = mapped_column(String(20))
     evidence: Mapped[list] = mapped_column(JSON)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    withdrawn: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -321,6 +324,68 @@ class PageQualityReview(Base):
     decision: Mapped[str] = mapped_column(String(30))
     note: Mapped[str] = mapped_column(Text)
     reviewed_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    section: Mapped[str] = mapped_column(String(30))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ChangeImpact(Base):
+    __tablename__ = "change_impacts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    requirement_id: Mapped[str] = mapped_column(ForeignKey("requirements.id"), index=True)
+    source: Mapped[list] = mapped_column(JSON)
+    note: Mapped[str] = mapped_column(Text)
+    disposition: Mapped[str] = mapped_column(String(20), default="PENDING")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    reviewed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    review_note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AssistantRun(Base):
+    __tablename__ = "assistant_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), unique=True)
+    index_id: Mapped[str] = mapped_column(ForeignKey("retrieval_indexes.id"))
+    epoch: Mapped[int] = mapped_column(Integer)
+    material_set_id: Mapped[str] = mapped_column(ForeignKey("material_sets.id"))
+    baseline_id: Mapped[str | None] = mapped_column(ForeignKey("baselines.id"))
+    requirement_revision_id: Mapped[str | None] = mapped_column(ForeignKey("requirement_revisions.id"))
+    review_version: Mapped[int | None] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(20))
+    question: Mapped[str] = mapped_column(Text)
+    sources: Mapped[list] = mapped_column(JSON)
+    result: Mapped[dict] = mapped_column(JSON)
+    model_profile: Mapped[dict] = mapped_column(JSON)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DocumentConversion(Base):
+    __tablename__ = "document_conversions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id"))
+    revision_id: Mapped[str | None] = mapped_column(ForeignKey("document_revisions.id"))
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id"), unique=True)
+    title: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))
+    raw_key: Mapped[str] = mapped_column(String(300))
+    raw_hash: Mapped[str] = mapped_column(String(64))
+    runtime: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

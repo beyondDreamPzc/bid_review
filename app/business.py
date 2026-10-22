@@ -19,6 +19,7 @@ def fail(status, message):
 
 
 def access(db, project_id, user):
+    if user.disabled:fail(401,"账号已停用。")
     project = db.get(m.Project, project_id)
     member = db.get(m.ProjectMember, (project_id, user.id))
     if project is None or member is None:
@@ -36,6 +37,7 @@ def mutate(db, user, project_id, key, body, operation, roles, handler):
     member = db.get(m.ProjectMember, (project_id, user.id), populate_existing=True)
     if project is None or member is None:
         fail(404, "Project not found")
+    if user.disabled:fail(401,"账号已停用。")
     if roles and member.role not in roles:
         fail(403, "Project role cannot perform this action")
     scope = f"{user.id}:{project_id}:{operation}"
@@ -50,6 +52,8 @@ def mutate(db, user, project_id, key, body, operation, roles, handler):
         return response
     result = handler(db, project, user, body)
     response = jsonable_encoder(result)
+    from app.lifecycle import notify_mutation
+    notify_mutation(db,project,user,operation,response)
     db.add(m.IdempotencyRecord(scope=scope, key=key, request_hash=request_hash, response=response))
     db.add(m.AuditEvent(project_id=project_id, actor_id=user.id,
                         action=operation.split(":")[0],
@@ -71,11 +75,12 @@ def req_dto(row):
                 "sources", "created_by", "confirmed_by", "created_at")}}
 
 
-def latest_requirements(db, project_id):
-    rows = db.scalars(select(m.RequirementRevision).join(m.Requirement,
+def latest_requirements(db, project_id, include_retired=False):
+    statement=select(m.RequirementRevision).join(m.Requirement,
         m.Requirement.id == m.RequirementRevision.requirement_id).where(
-        m.Requirement.project_id == project_id).order_by(
-        m.RequirementRevision.requirement_id, m.RequirementRevision.revision_no.desc())).all()
+        m.Requirement.project_id == project_id)
+    if not include_retired:statement=statement.where(m.Requirement.retired==False)
+    rows=db.scalars(statement.order_by(m.RequirementRevision.requirement_id,m.RequirementRevision.revision_no.desc())).all()
     latest = {}
     for row in rows:
         latest.setdefault(row.requirement_id, row)
@@ -156,6 +161,8 @@ def current_item(db, project, revision_id=None, requirement_id=None):
     item = db.scalar(statement)
     if item is None:
         fail(409, "Requirement revision is not in the current baseline")
+    if db.get(m.Requirement,item.requirement_id).retired:
+        fail(409,"要求已退休，请恢复并重新发布基线后操作。")
     return item
 
 
@@ -169,11 +176,14 @@ def set_member(db, project, user, body):
     target = db.get(m.User, body.user_id)
     if target is None:
         fail(404, "User not found; provision the account with the bootstrap CLI")
+    if target.disabled:fail(422,"该账号已停用，不能加入或调整项目角色。")
     member = db.get(m.ProjectMember, (project.id, target.id))
+    if body.expected_role is not None and (not member or member.role!=body.expected_role):
+        fail(409,"成员角色已变化，请刷新后重新核对。")
     if member and member.role == "OWNER":
         fail(409, "The owner role cannot be changed through this endpoint")
     if body.role not in EDIT and db.scalar(select(m.WorkItem.id).where(
-            m.WorkItem.project_id == project.id, m.WorkItem.assignee_id == target.id).limit(1)):
+            m.WorkItem.project_id == project.id, m.WorkItem.assignee_id == target.id,m.WorkItem.status!="CANCELLED").limit(1)):
         fail(409, "A task assignee must retain an editor role for future rechecks")
     if member:
         member.role = body.role
@@ -186,7 +196,7 @@ def set_member(db, project, user, body):
 def create_requirement(db, project, user, body, requirement_id=None):
     revision_no = 1
     if requirement_id:
-        requirement(db, project.id, requirement_id)
+        if requirement(db, project.id, requirement_id).retired:fail(409,"请先恢复要求再修订。")
         previous = latest_revision(db, requirement_id)
         if previous.revision_no != body.expected_revision_no:
             fail(409, "Requirement revision changed; reload before editing")
@@ -205,7 +215,7 @@ def create_requirement(db, project, user, body, requirement_id=None):
 
 
 def confirm_requirement(db, project, user, body, requirement_id):
-    requirement(db, project.id, requirement_id)
+    if requirement(db, project.id, requirement_id).retired:fail(409,"请先恢复要求再确认。")
     row = latest_revision(db, requirement_id)
     if row.revision_no != body.expected_revision_no:
         fail(409, "Requirement revision changed; reload before confirming")
@@ -230,7 +240,7 @@ def publish_baseline(db, project, user, body):
         fail(409, "Current baseline changed")
     latest = latest_requirements(db, project.id)
     expected = {row.id for row in latest}
-    if not latest or any(row.status != "CONFIRMED" for row in latest):
+    if (not latest and not latest_requirements(db,project.id,include_retired=True)) or any(row.status != "CONFIRMED" for row in latest):
         fail(409, "All latest requirement revisions must be confirmed before publication")
     if len(body.requirement_revision_ids) != len(expected) or set(body.requirement_revision_ids) != expected:
         fail(409, "Publish exactly all latest confirmed requirements, without omissions or duplicates")
@@ -295,6 +305,7 @@ def issue_dto(db, project, issue):
     status = "OPEN"
     if task.status == "ACCEPTED":
         status = "RESOLVED" if task_data["freshness"] == "CURRENT" else "NEEDS_RECHECK"
+    if issue.withdrawn:status="WITHDRAWN"
     return {**{name: getattr(issue, name) for name in (
         "id", "requirement_id", "requirement_revision_id", "baseline_id", "material_set_id",
         "epoch", "title", "description", "kind", "severity", "evidence")},
@@ -307,6 +318,7 @@ def create_issue(db, project, user, body):
     assignee = db.get(m.ProjectMember, (project.id, body.assignee_id))
     if assignee is None or assignee.role not in EDIT:
         fail(422, "Assignee must be an OWNER or EDITOR in this project")
+    if db.get(m.User,body.assignee_id).disabled:fail(422,"请选择未停用的整改负责人。")
     evidence = sources(db, project, body.evidence, formal=body.kind == "CONFLICT")
     logical = db.get(m.Requirement, item.requirement_id)
     logical.review_version += 1  # A newly discovered issue invalidates prior satisfaction, even in the same epoch.
@@ -384,6 +396,7 @@ def open_issues(db, project):
     counts = Counter()
     issues = db.scalars(select(m.ReviewIssue).where(m.ReviewIssue.project_id == project.id))
     for issue in issues:
+        if issue.withdrawn:continue
         task = db.scalar(select(m.WorkItem).where(m.WorkItem.issue_id == issue.id))
         submission = db.get(m.TaskSubmission, task.current_submission_id) if task.current_submission_id else None
         if task.status != "ACCEPTED" or not is_current(project, submission):
@@ -394,6 +407,9 @@ def open_issues(db, project):
 def decide_requirement(db, project, user, body):
     check_epoch(project, body.expected_epoch)
     item = current_item(db, project, revision_id=body.requirement_revision_id)
+    if db.scalar(select(m.ChangeImpact.id).where(m.ChangeImpact.requirement_id==item.requirement_id,
+            m.ChangeImpact.disposition=="PENDING")):
+        fail(409,"请先处理该要求的更正影响，再作最终判断。")
     count = open_issues(db, project)[item.requirement_id]
     if body.decision in {"CONFIRMED_SATISFIED", "NOT_APPLICABLE"} and count:
         fail(409, "Resolve and independently accept every issue before completing this requirement")
@@ -416,7 +432,8 @@ def pending_changes(db, project):
     latest = {row.requirement_id: row.id for row in latest_requirements(db, project.id)}
     frozen = {row.requirement_id: row.requirement_revision_id for row in db.scalars(
         select(m.BaselineItem).where(m.BaselineItem.baseline_id == project.current_baseline_id))}
-    return latest != frozen
+    return latest != frozen or bool(db.scalar(select(m.ChangeImpact.id).where(
+        m.ChangeImpact.project_id==project.id,m.ChangeImpact.disposition=="PENDING").limit(1)))
 
 
 def report(db, project):

@@ -30,8 +30,8 @@ class IndexResponse(BaseModel):
 class SearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     expected_material_set_id: str = Field(min_length=36, max_length=36, description="当前页面采用的正式材料集ID；查询前后都检查，版本变化则409。")
-    query: str = Field(min_length=1, max_length=500, description="待定位的关键词或条款，例如“故障响应时限”；采用中文分词BM25召回，不是模型问答。")
-    limit: int = Field(default=5, ge=1, le=10, description="最多返回多少个不同原文块。无匹配返回空数组，不编造答案。")
+    query: str = Field(min_length=1, max_length=400, description="待定位的关键词或条款，最多400字符；启用语义服务时执行中文稀疏/稠密混合召回与重排，未启用时为BM25。不是合规结论。")
+    limit: int = Field(default=5, ge=1, le=10, description="最多返回多少个不同原文块。关键词模式可能返回空数组；语义召回可能返回低相关近邻，均不得当作满足结论。")
 
 
 class Source(BaseModel):
@@ -53,16 +53,17 @@ class Source(BaseModel):
 
 class Hit(BaseModel):
     chunk_id: str = Field(description="MySQL不可变片段ID。结果正文从MySQL取回并校验，不相信外部索引中的正文。")
-    score: float = Field(description="BM25相关性排序分数，不是概率、置信度或满足要求的结论。")
-    quote: str = Field(description="未改写的原文片段，最多1200字符。数字、条件和措辞均保留。")
-    source: Source
+    score: float = Field(description="当前检索模式的相关性排序分数（BM25或重排原始分数），不是概率、置信度或满足要求的结论。")
+    quote: str = Field(description="未改写的原文片段，混合模式最多450字符，关键词模式最多1200字符。数字、条件和措辞均保留。")
+    source: Source = Field(description="经过项目、版本与原文摘要校验的来源定位信息。")
     original_url: str = Field(description="经过权限检查的原件接口地址，带PDF实际页码定位片段。")
 
 
 class SearchResponse(BaseModel):
+    mode: str = Field(default="BM25",description="BM25或HYBRID_RERANK；不静默降级。")
     material_set_id: str = Field(description="本次实际检索的正式材料集。")
     index_id: str = Field(description="完整构建后发布的索引快照ID。")
-    profile: str = Field(description="冻结的分块、分词和稀疏检索算法配置。")
+    profile: str = Field(description="冻结的分块、模型和检索算法配置。")
     query: str = Field(description="去掉首尾空白后的查询。")
     results: list[Hit] = Field(description="按相关性排列、按原文块去重的结果。空数组表示没有召回，不能据此认定响应缺失。")
 
@@ -95,7 +96,7 @@ def status(project_id: ProjectId, db: DB, user: CurrentUser):
     job = db.get(m.Job, index.job_id) if index else None
     material = db.get(m.MaterialSet, project.current_material_set_id) if project.current_material_set_id else None
     return {"enabled": get_settings().retrieval_enabled, "material_set_id": project.current_material_set_id,
-        "material_version": material.version if material else None, "profile": r.PROFILE,
+        "material_version": material.version if material else None, "profile": r.active_profile(),
         "index_id": index.id if index else None, "job_id": job.id if job else None,
         "status": "DISABLED" if not get_settings().retrieval_enabled else job.status if job else "NOT_BUILT",
         "chunk_count": index.chunk_count if index else 0, "error_detail": job.error_detail if job else None}

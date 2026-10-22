@@ -53,6 +53,9 @@ class ProjectFile(BaseModel):
 
 
 class WorkbenchResponse(BaseModel):
+    conversions: list[dict] = Field(default_factory=list,description="最近100条DOCX转换及生成PDF修订状态，原DOCX独立保留。")
+    change_impacts: list[dict] = Field(default_factory=list,description="更正影响及人工处理记录；待处理影响会阻止报告完成。")
+    retired_requirements: list[s.RequirementResponse] = Field(default_factory=list,description="已退休要求的最后修订，可恢复，历史来源仍保留。")
     workspace: s.WorkspaceResponse = Field(description="项目名称、当前输入版本与登录人的权限。")
     documents: list[ProjectFile] = Field(description="本项目资料及历史修订和解析进度；不会混入其他项目。")
     requirements: list[s.RequirementResponse] = Field(description="每条要求的最新录入版，可能尚未进入当前基线。")
@@ -70,7 +73,7 @@ def login(body: LoginInput, request: Request, response: Response, db: DB):
     same_origin(request)
     key = body.api_key.get_secret_value()
     user = db.scalar(select(m.User).where(m.User.api_key_hash == sha256(key.encode()))) if 24 <= len(key) <= 256 else None
-    if user is None:
+    if user is None or user.disabled:
         raise HTTPException(401, "访问密钥不正确，请核对账号配置。")
     old = request.cookies.get(COOKIE_NAME)
     if old:
@@ -137,7 +140,15 @@ def workbench(project_id: ProjectID, db: DB, user: CurrentUser, response: Respon
                 "block_count": artifact.block_count if artifact else None})
         files.append({"id": doc.id, "title": doc.title, "kind": doc.kind, "revisions": revisions})
     response.headers["Cache-Control"] = "no-store"
+    from app.conversion_api import dto as conversion_dto
+    from app.lifecycle import impact_dto
     return {"workspace": api.workspace(project_id, db, user), "documents": files,
+        "conversions":[conversion_dto(db,row) for row in db.scalars(select(m.DocumentConversion)
+            .where(m.DocumentConversion.project_id==project_id).order_by(m.DocumentConversion.created_at.desc()).limit(100))],
+        "change_impacts":[impact_dto(row) for row in db.scalars(select(m.ChangeImpact)
+            .where(m.ChangeImpact.project_id==project_id).order_by(m.ChangeImpact.created_at.desc()))],
+        "retired_requirements":[b.req_dto(row) for row in b.latest_requirements(db,project_id,include_retired=True)
+            if db.get(m.Requirement,row.requirement_id).retired],
         "requirements": api.requirements(project_id, db, user),
         "baseline": b.baseline_dto(db, db.get(m.Baseline, project.current_baseline_id)) if project.current_baseline_id else None,
         "material_set": b.dto(s.MaterialSetResponse, db.get(m.MaterialSet, project.current_material_set_id)) if project.current_material_set_id else None,
@@ -157,7 +168,7 @@ def candidates(project_id: ProjectID, db: DB, user: CurrentUser,
     existing = select(m.ProjectMember.user_id).where(m.ProjectMember.project_id == project_id)
     demo_ids = select(m.DemoWorkspace.owner_id).union(select(m.DemoWorkspace.editor_id), select(m.DemoWorkspace.reviewer_id))
     users = db.scalars(select(m.User).where(m.User.name.contains(q.strip(), autoescape=True),
-        m.User.id.not_in(existing), m.User.id.not_in(demo_ids)).order_by(m.User.name, m.User.id).limit(30))
+        m.User.disabled==False,m.User.id.not_in(existing), m.User.id.not_in(demo_ids)).order_by(m.User.name, m.User.id).limit(30))
     return [{"id": u.id, "name": u.name} for u in users]
 
 

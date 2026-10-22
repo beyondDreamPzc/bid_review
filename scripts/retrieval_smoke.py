@@ -67,7 +67,7 @@ def main():
             s=hit["source"]
             original=get(f"/api/v1/artifacts/{s['artifact_id']}/blocks/{s['block_id']}/source")
             assert original["quote"][s["start"]:s["end"]]==hit["quote"]
-        assert query(body,"xyznohitqwerty928475")["results"]==[]
+        if hits["mode"]=="BM25":assert query(body,"xyznohitqwerty928475")["results"]==[]
         updated=upload("response-2h.pdf",document=old["document_id"])
         assert any("4小时" in h["quote"] for h in query(body,"响应时限")["results"])
         current=materials(updated)
@@ -83,12 +83,12 @@ def main():
         assert query(current_body,"响应时限")["results"][0]["source"]["artifact_id"]==updated["artifact_id"]
         with SessionLocal() as db:
             chunks=db.scalars(select(RetrievalChunk).where(RetrievalChunk.index_id==new["id"])).all()
-        print(json.dumps({"engine":"REAL_MILVUS_2.6.6_BM25","profile":result["profile"],
+        print(json.dumps({"engine":"REAL_MILVUS_2.6.6","mode":result["mode"],"profile":result["profile"],
             "project_id":pid,"parallel_build_requests":4,"deduplicated_jobs":1,
             "chunks":len(chunks),"old_response":"4小时","new_response":"2小时",
             "reference_excluded":True,"upload_does_not_change_search":True,
             "new_material_invalidates_search":True,"exact_source_verified":True,
-            "unknown_term_empty":True,"rebuild_succeeded":True},ensure_ascii=False))
+            "unknown_term_empty":hits["mode"]=="BM25","rebuild_succeeded":True},ensure_ascii=False))
 
 
 if __name__=="__main__":main()

@@ -9,8 +9,8 @@ celery_app = Celery("bid_review", broker=settings.redis_url)
 celery_app.conf.update(task_serializer="json", accept_content=["json"],
                        task_ignore_result=True, task_acks_late=True,
                        worker_prefetch_multiplier=1, broker_connection_retry_on_startup=True,
-                       broker_transport_options={"visibility_timeout": 600, "socket_timeout": 5},
-                       task_soft_time_limit=480, task_time_limit=540)
+                       broker_transport_options={"visibility_timeout": 10800, "socket_timeout": 5},
+                       task_soft_time_limit=7100, task_time_limit=7200)
 
 
 @celery_app.task(name="bid_review.execute_job")

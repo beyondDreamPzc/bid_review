@@ -5,21 +5,35 @@ from sqlalchemy import select
 
 from app import business as b, models as m
 from app.jobs import Attempt, StaleLease, heartbeat, owned_job
+from app.lease_guard import keep_lease
 from app.milvus import Milvus, RetrievalUnavailable
 from app.storage import sha256
 
 PROFILE = "milvus-2.6-chinese-bm25-block1200-overlap120-v1"
+HYBRID_PROFILE="milvus-bge-zh512-rrf60-rerank450-overlap60-v1"
 KIND = "MATERIAL_INDEX"
 MAX_CHUNKS = 10000
+
+
+def active_profile():
+    from app.config import get_settings
+    return HYBRID_PROFILE if get_settings().semantic_enabled else PROFILE
+
+
+def projection(settings,profile):
+    if profile==HYBRID_PROFILE:
+        from app.hybrid_milvus import HybridMilvus
+        return HybridMilvus(settings)
+    return Milvus(settings)
 
 
 def current_index(db, project):
     return db.scalar(select(m.RetrievalIndex).where(
         m.RetrievalIndex.material_set_id == project.current_material_set_id,
-        m.RetrievalIndex.profile == PROFILE))
+        m.RetrievalIndex.profile == active_profile()))
 
 
-def freeze_chunks(db, project, material, index_id):
+def freeze_chunks(db, project, material, index_id,hybrid=False):
     chunks = []
     for item in material.items:
         if item["submission_role"] == "REFERENCE":
@@ -32,8 +46,9 @@ def freeze_chunks(db, project, material, index_id):
         for block in blocks:
             if sha256(block.text.encode()) != block.text_hash:
                 b.fail(409, "原文完整性校验失败，请检查解析产物。")
-            for start in range(0, len(block.text), 1080):
-                text = block.text[start:start + 1200]
+            size,step=(450,390) if hybrid else (1200,1080)
+            for start in range(0, len(block.text), step):
+                text = block.text[start:start + size]
                 if not text.strip():
                     continue
                 source = {"artifact_id": artifact.id, "artifact_sha256": artifact.sha256,
@@ -73,12 +88,13 @@ def enqueue(db, project, actor, value):
         return {"id": index.id, "job_id": job.id, "reused": True}
     first = next(i for i in material.items if i["submission_role"] == "FORMAL_RESPONSE")
     index_id = m.uid()
-    chunks = freeze_chunks(db, project, material, index_id)
+    profile=active_profile()
+    chunks = freeze_chunks(db, project, material, index_id,profile==HYBRID_PROFILE)
     job = m.Job(project_id=project.id, revision_id=first["revision_id"], kind=KIND,
-        parser_profile=PROFILE, dedup_key=f"material-index:{material.id}:{PROFILE}")
+        parser_profile=profile, dedup_key=f"material-index:{material.id}:{profile}")
     db.add(job); db.flush()
     index = m.RetrievalIndex(id=index_id, project_id=project.id, material_set_id=material.id,
-        profile=PROFILE, job_id=job.id, chunk_count=len(chunks), created_by=actor.id)
+        profile=profile, job_id=job.id, chunk_count=len(chunks), created_by=actor.id)
     db.add(index); db.flush(); db.add_all(chunks); db.add(m.OutboxEvent(job_id=job.id))
     return {"id": index.id, "job_id": job.id, "reused": False}
 
@@ -94,17 +110,18 @@ def run_index(factory, job_id, settings, client=None):
         index = db.scalar(select(m.RetrievalIndex).where(m.RetrievalIndex.job_id == job.id))
         index_id, total = index.id, index.chunk_count
     try:
-        if not settings.retrieval_enabled or attempt.parser_profile != PROFILE:
+        if not settings.retrieval_enabled or attempt.parser_profile not in {PROFILE,HYBRID_PROFILE}:
             raise RetrievalUnavailable("检索配置未启用或版本不一致。")
-        client = client or Milvus(settings)
+        client = client or projection(settings,attempt.parser_profile)
         heartbeat(factory, attempt, settings)
-        client.ensure()
-        for offset in range(0, total, 100):
+        with keep_lease(factory,attempt,settings):client.ensure()
+        batch_size=16 if attempt.parser_profile==HYBRID_PROFILE else 100
+        for offset in range(0, total, batch_size):
             heartbeat(factory, attempt, settings)
             with factory() as db:
                 chunks = db.scalars(select(m.RetrievalChunk).where(m.RetrievalChunk.index_id == index_id)
-                    .order_by(m.RetrievalChunk.id).offset(offset).limit(100)).all()
-            client.write(attempt.project_id, f"{index_id}:{attempt.token}", chunks)
+                    .order_by(m.RetrievalChunk.id).offset(offset).limit(batch_size)).all()
+            with keep_lease(factory,attempt,settings):client.write(attempt.project_id, f"{index_id}:{attempt.token}", chunks)
         heartbeat(factory, attempt, settings)
         with factory.begin() as db:
             # Project -> Job lock order matches HTTP mutations. Late attempts cannot publish.
@@ -113,7 +130,7 @@ def run_index(factory, job_id, settings, client=None):
             db.get(m.RetrievalIndex, index_id).published_token = attempt.token
             job.status = "SUCCEEDED"; job.lease_until = None; job.error_code = job.error_detail = None
             db.add(m.AuditEvent(project_id=attempt.project_id, action="MATERIAL_INDEX_COMPLETED",
-                object_id=index_id, details={"profile": PROFILE, "chunk_count": total, "generation": attempt.token}))
+                object_id=index_id, details={"profile": attempt.parser_profile, "chunk_count": total, "generation": attempt.token}))
         return {"status": "SUCCEEDED", "index_id": index_id}
     except StaleLease:
         return {"status": "STALE_LEASE"}
@@ -138,10 +155,22 @@ def search(db, user, project_id, value, settings, client=None):
     index = current_index(db, project)
     if not index or index.published_token is None or db.get(m.Job, index.job_id).status != "SUCCEEDED":
         b.fail(409, "本轮材料索引尚未就绪，请先构建并等待完成。")
-    index_id, token, material_id = index.id, index.published_token, index.material_set_id
+    index_id, token, material_id,profile = index.id, index.published_token, index.material_set_id,index.profile
     # Finish read transaction before external search; recheck membership and input in a new snapshot.
     db.commit()
-    hits = (client or Milvus(settings)).search(project_id, f"{index_id}:{token}", value.query, value.limit * 3)
+    client=client or projection(settings,profile)
+    hits = client.search(project_id, f"{index_id}:{token}", value.query, value.limit * 3)
+    if profile==HYBRID_PROFILE and hits:
+        # Do not send unvalidated/foreign projection rows to the reranker.
+        candidates=[]
+        for hit in hits:
+            chunk=db.get(m.RetrievalChunk,hit.get("chunk"))
+            if not chunk or chunk.index_id!=index_id:raise RetrievalUnavailable("混合召回来源校验失败。")
+            candidates.append(chunk.text)
+        db.commit()
+        scores=client.semantic.rank(value.query,candidates)
+        hits=[{**hit,"distance":score,"fusion_score":hit["distance"]} for hit,score in zip(hits,scores,strict=True)]
+        hits.sort(key=lambda hit:(-hit["distance"],hit["chunk"]))
     db.expire_all()
     project, _ = b.access(db, project_id, user)
     index = db.get(m.RetrievalIndex, index_id)
@@ -165,5 +194,5 @@ def search(db, user, project_id, value, settings, client=None):
             "source": source, "original_url": f"/api/v1/revisions/{source['revision_id']}/original#page={source['page']}"})
         if len(results) == value.limit:
             break
-    return {"material_set_id": material_id, "index_id": index_id, "profile": PROFILE,
-            "query": value.query, "results": results}
+    return {"material_set_id": material_id, "index_id": index_id, "profile": profile,
+            "mode":"HYBRID_RERANK" if profile==HYBRID_PROFILE else "BM25","query": value.query, "results": results}

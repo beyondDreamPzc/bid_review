@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     retrieval_enabled: bool = False
     milvus_url: str = "http://milvus:19530"
     milvus_token: SecretStr = SecretStr("")
+    semantic_enabled: bool = False
+    semantic_url: str = "http://semantic:8010"
+    libreoffice_path: str = "/usr/bin/libreoffice"
     llm_enabled: bool = False
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: SecretStr = SecretStr("")

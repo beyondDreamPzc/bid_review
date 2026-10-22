@@ -1,7 +1,7 @@
 name: bid-review-phase1
 
 x-app: &app
-  image: bid-review-app:0.8.0
+  image: bid-review-app:1.0.0
   environment: &app-environment
     BID_DATABASE_URL: mysql+pymysql://bid_user:${MYSQL_PASSWORD:?Run scripts/init_env.py}@mysql:3306/bid_review?charset=utf8mb4
     BID_REDIS_URL: redis://redis:6379/0
@@ -11,6 +11,8 @@ x-app: &app
     BID_PARSER_PROFILE: ${BID_PARSER_PROFILE:-mineru-4.0.12-flash-auto-v1}
     BID_RETRIEVAL_ENABLED: ${BID_RETRIEVAL_ENABLED:-true}
     BID_MILVUS_URL: http://milvus:19530
+    BID_SEMANTIC_ENABLED: ${BID_SEMANTIC_ENABLED:-true}
+    BID_SEMANTIC_URL: http://semantic:8010
   volumes:
     - documents:/data/blobs
   depends_on:
@@ -66,7 +68,7 @@ services:
 
   bootstrap:
     <<: *app
-    command: ["python", "-m", "app.cli", "bootstrap"]
+    command: ["python", "-m", "app.cli", "bootstrap", "--preserve-existing-name"]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -91,7 +93,7 @@ services:
 
   worker:
     <<: *app
-    image: bid-review-parser:0.8.0
+    image: bid-review-parser:1.0.0
     build:
       context: .
       target: mineru-worker
@@ -133,6 +135,48 @@ services:
         condition: service_completed_successfully
       milvus:
         condition: service_healthy
+      semantic:
+        condition: service_healthy
+
+  converter-worker:
+    <<: *app
+    image: bid-review-converter:1.0.0
+    build:
+      context: .
+      target: converter
+    command: ["python", "-m", "celery", "-A", "app.worker:celery_app", "worker", "-Q", "convert", "--concurrency=1", "--loglevel=INFO"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  semantic-download:
+    image: bid-review-semantic:1.0.0
+    build:
+      context: .
+      target: semantic
+    command: ["python", "-m", "scripts.fetch_semantic_models"]
+    environment:
+      BID_SEMANTIC_MODELS_PATH: /data/semantic
+    volumes:
+      - semantic_models:/data/semantic
+    restart: "no"
+
+  semantic:
+    image: bid-review-semantic:1.0.0
+    environment:
+      BID_SEMANTIC_MODELS_PATH: /data/semantic
+      OMP_NUM_THREADS: "2"
+    volumes:
+      - semantic_models:/data/semantic:ro
+    depends_on:
+      semantic-download:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8010/health', timeout=30)"]
+      start_period: 120s
+      interval: 20s
+      timeout: 35s
+      retries: 12
 
   milvus:
     image: milvusdb/milvus:v2.6.6@sha256:38a6ba6378c602bfb187f4f34077f384c160edf1cf329aa22d99fb58b81b2497
@@ -159,3 +203,4 @@ volumes:
   documents:
   mineru_models:
   milvus_data:
+  semantic_models:

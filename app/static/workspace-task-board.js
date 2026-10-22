@@ -1,0 +1,24 @@
+"use strict";
+function filteredTasks() {
+  const s=stateFor("tasks");
+  return data.issues.filter(i=>matches(i.title+" "+i.description+" "+who(i.task.assignee_id),s.q)&&
+    (!s.filter||(s.filter==="MINE"?i.task.assignee_id===user.id:i.task.effective_status===s.filter)));
+}
+function tasksView() {
+  const issues=filteredTasks(),issue=data.issues.find(i=>i.task.id===selectedTask)||issues[0];
+  if(issue)selectedTask=issue.task.id;
+  return `<div class="workspace-columns task-layout"><section class="panel"><div class="section-heading"><h2>整改任务</h2><span class="count">${data.issues.length} 项历史问题</span></div><p class="muted">修改实际文件，发布新材料，提交原文依据，再由另一人复核。</p>${listToolbar("tasks",[["","全部任务"],["MINE","分配给我"],["TODO","待整改"],["IN_PROGRESS","整改中"],["SUBMITTED","待复核"],["RETURNED","已退回"],["NEEDS_RECHECK","需重核"],["ACCEPTED","已验收"],["CANCELLED","已撤销"]],"搜索问题或负责人")}<div id="tasks-list">${taskList()}</div></section><section class="panel task-detail" id="task-detail">${issue?taskDetail(issue):emptyState("尚无整改任务","在逐项审查中发现实际缺口后，登记问题并指定负责人。",`<button data-tab="review">进入逐项审查</button>`)}</section></div>`;
+}
+function taskList() {
+  return `${pageItems("tasks",filteredTasks()).map(issue=>{
+    const t=issue.task,overdue=t.due_date&&["TODO","IN_PROGRESS","RETURNED","NEEDS_RECHECK"].includes(t.effective_status)&&Date.now()>Date.parse(t.due_date+"T23:59:59+08:00");
+    return `<article class="issue ${t.id===selectedTask?"selected":""}"><div class="row"><h3>${esc(issue.title)}</h3>${tag(t.effective_status)}</div><p>${esc(issue.description)}</p><small>负责人 ${esc(who(t.assignee_id))}${t.due_date?` / 截止 ${formatDate(t.due_date)}`:""}${overdue?` <strong class="overdue">已超过期限</strong>`:""}</small><button class="small" data-task="${esc(t.id)}">查看与处理</button></article>`;
+  }).join("")||emptyState("没有符合条件的任务","调整状态或负责人筛选，也可以在审查页登记新问题。")}${pager("tasks")}`;
+}
+function taskDetail(issue) {
+  const t=issue.task,own=t.assignee_id===user.id,submission=t.current_submission,cancelled=t.status==="CANCELLED";
+  const req=data.baseline?.requirements.find(r=>r.requirement_id===t.requirement_id);
+  const canStart=!cancelled&&own&&canEdit()&&(["TODO","RETURNED"].includes(t.status)||(["SUBMITTED","ACCEPTED"].includes(t.status)&&t.freshness!=="CURRENT"));
+  const canDecide=!cancelled&&canReview()&&t.status==="SUBMITTED"&&t.freshness==="CURRENT"&&submission?.submitted_by!==user.id;
+  return `<div class="section-heading"><h2>${esc(issue.title)}</h2>${tag(t.effective_status)}</div><p class="muted">负责人 ${esc(who(t.assignee_id))}${t.due_date?` / 截止 ${formatDate(t.due_date)}`:""}</p><div class="row task-management">${data.workspace.my_role==="OWNER"&&t.status!=="SUBMITTED"?`<button class="small" data-reassign="${esc(t.id)}">转派或调整期限</button>`:""}${canReview()?`<button class="plain small" data-withdraw-issue="${esc(issue.id)}">${cancelled?"恢复问题":"撤销问题"}</button>`:""}</div>${cancelled?`<p class="hint">问题已撤销，历史提交和复核保留。恢复后需重新整改和判断。</p>`:""}${req?`<h3>当前要求</h3><p class="quote">${esc(req.text)}</p>`:`<p class="hint warning">该要求不在当前基线中，请检查要求范围和更正影响。</p>`}<details><summary>查看问题登记时的证据</summary>${sourceQuotes(issue.evidence)}</details>${canStart?`<p class="hint">先回看当前要求和材料。文件需要修改时，上传修订并明确发布后再提交。</p><button class="primary" data-start="${esc(t.id)}">${t.freshness!=="CURRENT"?"重新核对并开始整改":"开始整改"}</button>`:""}${!cancelled&&own&&canEdit()&&t.status==="IN_PROGRESS"?`<form id="task-submit-form">${pickerHtml("response")}<label>整改说明<textarea name="note" maxlength="8000" required placeholder="说明修改了什么，并选择修改后的正式原文"></textarea></label><button class="primary" type="submit">提交整改，等待他人复核</button></form>`:""}${submission?`<div class="divider"></div><h3>最近一次提交${t.status==="SUBMITTED"?"":"（历史保留）"}</h3><small>提交人 ${esc(who(submission.submitted_by))} / ${t.freshness==="CURRENT"?"来源属于当前输入":"输入已变，需要重新核对"}</small><p class="quote">${esc(submission.note)}</p>${sourceQuotes(submission.evidence)}`:""}${canDecide?`<form id="task-decision-form"><label>独立复核意见<textarea name="note" maxlength="8000" required placeholder="回看修改后的原件，写明通过或退回原因"></textarea></label><div class="row"><button class="primary" type="submit" name="decision" value="ACCEPT">验收通过</button><button type="submit" name="decision" value="RETURN">退回修改</button></div></form>`:""}${t.status==="SUBMITTED"&&submission?.submitted_by===user.id?`<p class="hint warning">你提交了本次整改，需要另一位负责人或审查人登录复核。</p>`:""}${t.status==="ACCEPTED"&&t.freshness==="CURRENT"?`<p class="hint">整改已验收，请回到逐项审查作最终人工判断。</p><button class="small" data-review="${esc(t.requirement_id)}">核对对应要求</button>`:""}<details><summary>历次复核与提交记录</summary>${t.decisions.map(d=>`<div class="history"><strong>${esc(labels[d.decision])}</strong> / ${esc(who(d.decided_by))}<p>${esc(d.note)}</p></div>`).join("")}<button class="small" data-action="task-history">读取历次提交</button><div id="task-history"></div></details>`;
+}

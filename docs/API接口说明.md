@@ -1,13 +1,13 @@
 # 投标审查系统：中文接口使用手册
 
-适用版本：0.8.0。由当前应用的 OpenAPI 自动生成。
+适用版本：1.0.0。由当前应用的 OpenAPI 自动生成。
 
 先读 [业务流程与接口](业务流程与接口.md)，理解谁在什么场景调用接口，再查本手册的参数。
 
 在线调试：[Swagger](http://127.0.0.1:18080/docs)；机器可读规范：[OpenAPI JSON](openapi.json)。
 
 本系统当前支持**投标材料工程基础和人工业务闭环**：上传 PDF 保留修订、核对原文、人工整理并确认要求、发布基线和正式材料集、登记问题、指派整改、由另一人复核，再逐项作出审核决定。
-完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`；可选云模型只生成要求候选，人工采纳后仍是待确认草稿。模型默认关闭；正式材料支持Milvus中文BM25证据检索，语义向量、生成式RAG问答和自动审查尚未接入。
+完整业务场景和连续调用例子见项目 `docs/业务流程与接口.md`。当前 `review_mode=HUMAN`；可选云模型生成要求候选、带引用的证据问答与逐项检查建议，人工采纳后仍须走确认或整改流程。模型默认关闭；正式材料支持Milvus稀疏/稠密混合召回、RRF及本地重排。更正影响由人工关联与处理，不自动作最终判断。
 
 ### 第一次使用
 
@@ -37,7 +37,7 @@
 - HTTP **202**：系统已接收上传并登记任务，请继续查询任务；不表示解析已经完成。
 - `SUCCEEDED`：相应技术任务已完成；解析任务生成文字产物，要求抽取任务生成候选，均不表示投标业务满足要求。
 - `NEEDS_REVIEW`：产物需要人工检查；MinerU 是否运行 OCR 由实际解析模式决定，不能据此证明没有漏字或表格语义正确。
-- `formal_review_ready=false`：解析结果尚不支持自动审查。人工业务、正式材料检索和可选要求候选抽取可以引用文字块，但必须回看原件；模型审查和更正影响分析尚未接入。
+- `formal_review_ready=false`：解析结果尚不支持自动审查。人工业务、正式材料检索和可选要求候选抽取可以引用文字块，但必须回看原件；辅助检查与更正影响仍需人工核对，不提供自动合规结论。
 - `review_epoch`：当前要求基线和正式材料集组合的版本号。重新发布会使旧提交和审核决定过期；历史记录保留。
 - `REVIEW_COMPLETE`：本轮全部要求已经人工确认，相关问题均独立复核，且没有未发布的要求修改；不是模型自动给出的合规结论。
 
@@ -123,6 +123,33 @@ flowchart LR
 | GET | `/api/v1/projects/{project_id}/retrieval` | 查看当前正式材料集的索引状态 |
 | POST | `/api/v1/projects/{project_id}/retrieval/indexes` | 为当前正式材料构建可追溯检索索引 |
 | POST | `/api/v1/projects/{project_id}/retrieval/search` | 查找当前正式材料里的原文证据 |
+| POST | `/api/v1/projects/{project_id}/tasks/{task_id}/assignment` | 转派整改任务或调整期限 |
+| POST | `/api/v1/projects/{project_id}/issues/{issue_id}/lifecycle` | 撤销误报问题或恢复整改 |
+| POST | `/api/v1/projects/{project_id}/requirements/{requirement_id}/lifecycle` | 退休失效要求或恢复要求 |
+| POST | `/api/v1/projects/{project_id}/members/{user_id}/remove` | 移除已交接成员的项目权限 |
+| POST | `/api/v1/projects/{project_id}/change-impacts` | 把更正原文关联到受影响要求 |
+| GET | `/api/v1/projects/{project_id}/change-impacts` | 查看更正影响与处理记录 |
+| POST | `/api/v1/projects/{project_id}/change-impacts/{impact_id}/decision` | 记录更正已修订或人工确认不需修改 |
+| GET | `/api/v1/projects/{project_id}/catalog/{resource}` | 分页筛选项目资料、要求、任务或审计 |
+| GET | `/api/v1/account` | 查看自己的密钥版本与有效会话 |
+| POST | `/api/v1/account/key` | 轮换本人访问密钥并撤销全部会话 |
+| POST | `/api/v1/account/sessions/{session_id}/revoke` | 撤销本人的一个浏览器会话 |
+| GET | `/api/v1/notifications` | 查看本人仍有项目权限的站内通知 |
+| POST | `/api/v1/notifications/{notification_id}/read` | 将本人通知标记为已读 |
+| POST | `/api/v1/projects/{project_id}/conversions` | 保留DOCX原件并异步渲染为不可变PDF |
+| GET | `/api/v1/projects/{project_id}/conversions` | 查看最近的DOCX转换状态和PDF修订 |
+| GET | `/api/v1/projects/{project_id}/conversions/{conversion_id}/original` | 下载转换前的DOCX原件 |
+| POST | `/api/v1/projects/{project_id}/conversions/{conversion_id}/retry` | 明确重试失败的DOCX转换 |
+| GET | `/api/v1/assistant/config` | 确认辅助检查的模型与内容处理目的地 |
+| POST | `/api/v1/projects/{project_id}/assistant-runs` | 异步生成有引用的证据问答或逐项检查建议 |
+| GET | `/api/v1/projects/{project_id}/assistant-runs` | 查看辅助建议及输入过期状态 |
+| POST | `/api/v1/projects/{project_id}/assistant-runs/{run_id}/control` | 取消或明确重试辅助检查 |
+| POST | `/api/v1/projects/{project_id}/assistant-runs/{run_id}/adopt` | 人工编辑并采纳疑似问题为整改任务 |
+| GET | `/api/v1/projects/{project_id}/operations` | 查看本项目后台任务与检索容量 |
+| GET | `/api/v1/projects/{project_id}/operations/metrics` | 读取本项目可监控的计数指标 |
+| GET | `/api/v1/projects/{project_id}/review-report/export.json` | 导出含冻结依据的JSON审查快照 |
+| GET | `/api/v1/projects/{project_id}/review-report/export.csv` | 导出逐项覆盖清单CSV |
+| GET | `/api/v1/projects/{project_id}/review-report/print` | 打开可打印及保存PDF的报告版式 |
 
 ## 1. 创建一次投标工作的项目空间
 
@@ -284,11 +311,13 @@ flowchart LR
 
 | 字段 | 必填 | 类型 | 限制/默认 | 说明 |
 |---|---|---|---|---|
+| `expected_role` | 否 | string / null | — | 修改已有角色时携带当前角色，若已被其他人修改返回409；首次添加可省略。 |
 | `user_id` | 是 | string | — | 已在系统中创建的用户 ID。用户可通过 /api/v1/me 查询自己的 ID。 |
 | `role` | 是 | string | 可选值=EDITOR, REVIEWER, READER | EDITOR 编写/整改；REVIEWER 确认要求、登记问题和复核；READER 只读。只有项目 OWNER 可设置。 |
 
 ```json
 {
+  "expected_role": "示例",
   "user_id": "示例",
   "role": "EDITOR"
 }
@@ -483,7 +512,7 @@ flowchart LR
 | 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
 | 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
 | 413 | 上传字节数超过配置上限，默认 50 MiB（52,428,800 字节）。分拆文件或调整服务配置。 |
-| 415 | 当前阶段只接收以 %PDF- 开头的 PDF 内容。改扩展名无效；DOCX 和扫描 OCR 尚未接入。 |
+| 415 | 文件内容不符合接口要求。PDF接口需要真实PDF字节，DOCX须使用转换接口并通过容器、宏和外部资源检查；更改扩展名无效。 |
 | 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
 
 **成功返回字段**（数组接口描述的是每一个元素）
@@ -550,7 +579,7 @@ flowchart LR
 | 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
 | 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
 | 413 | 上传字节数超过配置上限，默认 50 MiB（52,428,800 字节）。分拆文件或调整服务配置。 |
-| 415 | 当前阶段只接收以 %PDF- 开头的 PDF 内容。改扩展名无效；DOCX 和扫描 OCR 尚未接入。 |
+| 415 | 文件内容不符合接口要求。PDF接口需要真实PDF字节，DOCX须使用转换接口并通过容器、宏和外部资源检查；更改扩展名无效。 |
 | 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
 
 **成功返回字段**（数组接口描述的是每一个元素）
@@ -1458,16 +1487,14 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 | `name` | 否 | string | 默认=要求基线；最长字符数=200 | 基线名称，例如首次确认版。 |
 | `expected_epoch` | 是 | integer | 最小=0.0 | 工作台当前 review_epoch；版本变化后须刷新。 |
 | `expected_current_baseline_id` | 否 | string / null | — | 预期上一基线 ID；首次发布为 null。 |
-| `requirement_revision_ids` | 是 | 数组<string> | 最少项数=1；最多项数=1000 | 当前全部要求的最新已确认修订 ID，不能遗漏、重复或包含草稿。 |
+| `requirement_revision_ids` | 是 | 数组<string> | 最少项数=0；最多项数=1000 | 当前全部有效要求的最新已确认修订ID，不能遗漏、重复或包含草稿。所有要求均退休后允许发布空基线，但报告不会判定已完成。 |
 
 ```json
 {
   "name": "要求基线",
   "expected_epoch": 1,
   "expected_current_baseline_id": "示例",
-  "requirement_revision_ids": [
-    "示例"
-  ]
+  "requirement_revision_ids": []
 }
 ```
 
@@ -2165,7 +2192,7 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 | `requirement_id` | string | 逻辑要求 ID，新修订仍沿用此关系。 |
 | `assignee_id` | string | 整改负责人。 |
 | `due_date` | string (date) / null | 整改期限。 |
-| `status` | string | 持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED。 |
+| `status` | string | 持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED/CANCELLED。CANCELLED由问题撤销产生。 |
 | `effective_status` | string | 当前业务状态；已提交或已验收的结果遇到输入版本变化时为 NEEDS_RECHECK，历史状态保留。 |
 | `freshness` | string | CURRENT 或 STALE，相对于项目当前基线、材料集与 epoch。 |
 | `version` | integer | 乐观锁版本，执行下一个动作时作为 expected_version。 |
@@ -2301,7 +2328,7 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 | `requirement_id` | string | 逻辑要求 ID，新修订仍沿用此关系。 |
 | `assignee_id` | string | 整改负责人。 |
 | `due_date` | string (date) / null | 整改期限。 |
-| `status` | string | 持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED。 |
+| `status` | string | 持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED/CANCELLED。CANCELLED由问题撤销产生。 |
 | `effective_status` | string | 当前业务状态；已提交或已验收的结果遇到输入版本变化时为 NEEDS_RECHECK，历史状态保留。 |
 | `freshness` | string | CURRENT 或 STALE，相对于项目当前基线、材料集与 epoch。 |
 | `version` | integer | 乐观锁版本，执行下一个动作时作为 expected_version。 |
@@ -2513,7 +2540,7 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 | `requirement_id` | string | 逻辑要求 ID，新修订仍沿用此关系。 |
 | `assignee_id` | string | 整改负责人。 |
 | `due_date` | string (date) / null | 整改期限。 |
-| `status` | string | 持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED。 |
+| `status` | string | 持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED/CANCELLED。CANCELLED由问题撤销产生。 |
 | `effective_status` | string | 当前业务状态；已提交或已验收的结果遇到输入版本变化时为 NEEDS_RECHECK，历史状态保留。 |
 | `freshness` | string | CURRENT 或 STALE，相对于项目当前基线、材料集与 epoch。 |
 | `version` | integer | 乐观锁版本，执行下一个动作时作为 expected_version。 |
@@ -3100,6 +3127,9 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
+| `conversions` | 数组<object> | 最近100条DOCX转换及生成PDF修订状态，原DOCX独立保留。 |
+| `change_impacts` | 数组<object> | 更正影响及人工处理记录；待处理影响会阻止报告完成。 |
+| `retired_requirements` | 数组<object> | 已退休要求的最后修订，可恢复，历史来源仍保留。 |
 | `workspace` | object | 项目名称、当前输入版本与登录人的权限。 |
 | `documents` | 数组<object> | 本项目资料及历史修订和解析进度；不会混入其他项目。 |
 | `requirements` | 数组<object> | 每条要求的最新录入版，可能尚未进入当前基线。 |
@@ -3113,6 +3143,47 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 
 ```json
 {
+  "conversions": [
+    {}
+  ],
+  "change_impacts": [
+    {}
+  ],
+  "retired_requirements": [
+    {
+      "requirement_id": "示例",
+      "revision_id": "示例",
+      "revision_no": 1,
+      "title": "示例",
+      "text": "示例",
+      "category": "示例",
+      "priority": "示例",
+      "status": "示例",
+      "sources": [
+        {
+          "artifact_id": "示例",
+          "block_id": "示例",
+          "revision_id": "示例",
+          "document_id": "示例",
+          "document_kind": "示例",
+          "revision_sha256": "示例",
+          "page": 1,
+          "bbox": [
+            79.4,
+            159.783,
+            523.025,
+            170.283
+          ],
+          "quote": "示例",
+          "text_hash": "示例",
+          "submission_role": "示例"
+        }
+      ],
+      "created_by": "示例",
+      "confirmed_by": "示例",
+      "created_at": "2026-10-19T09:00:00"
+    }
+  ],
   "workspace": {
     "project_id": "示例",
     "name": "示例",
@@ -4545,8 +4616,8 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 | 字段 | 必填 | 类型 | 限制/默认 | 说明 |
 |---|---|---|---|---|
 | `expected_material_set_id` | 是 | string | 最短字符数=36；最长字符数=36 | 当前页面采用的正式材料集ID；查询前后都检查，版本变化则409。 |
-| `query` | 是 | string | 最短字符数=1；最长字符数=500 | 待定位的关键词或条款，例如“故障响应时限”；采用中文分词BM25召回，不是模型问答。 |
-| `limit` | 否 | integer | 默认=5；最小=1.0；最大=10.0 | 最多返回多少个不同原文块。无匹配返回空数组，不编造答案。 |
+| `query` | 是 | string | 最短字符数=1；最长字符数=400 | 待定位的关键词或条款，最多400字符；启用语义服务时执行中文稀疏/稠密混合召回与重排，未启用时为BM25。不是合规结论。 |
+| `limit` | 否 | integer | 默认=5；最小=1.0；最大=10.0 | 最多返回多少个不同原文块。关键词模式可能返回空数组；语义召回可能返回低相关近邻，均不得当作满足结论。 |
 
 ```json
 {
@@ -4571,9 +4642,10 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
+| `mode` | string | BM25或HYBRID_RERANK；不静默降级。 |
 | `material_set_id` | string | 本次实际检索的正式材料集。 |
 | `index_id` | string | 完整构建后发布的索引快照ID。 |
-| `profile` | string | 冻结的分块、分词和稀疏检索算法配置。 |
+| `profile` | string | 冻结的分块、模型和检索算法配置。 |
 | `query` | string | 去掉首尾空白后的查询。 |
 | `results` | 数组<object> | 按相关性排列、按原文块去重的结果。空数组表示没有召回，不能据此认定响应缺失。 |
 
@@ -4581,6 +4653,7 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
 
 ```json
 {
+  "mode": "BM25",
   "material_set_id": "示例",
   "index_id": "示例",
   "profile": "示例",
@@ -4613,6 +4686,1614 @@ attempt 是已领取执行次数，初始 0。PDF任务没有百分比进度；�
   ]
 }
 ```
+
+## 56. 转派整改任务或调整期限
+
+`POST /api/v1/projects/{project_id}/tasks/{task_id}/assignment`
+
+业务场景：编写人请假、职责调整或整改延期。仅OWNER，携带当前任务version与原因。待复核先完成复核，撤销任务可先转派再恢复；其他状态可转派给本项目OWNER/EDITOR。保留提交和复核历史，不把更换负责人当作整改验收。操作后通知新负责人。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `task_id` | path | 是 | string | — | 整改任务ID，从问题或任务列表取得；与项目配套。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `note` | 是 | string | 最短字符数=5；最长字符数=2000 | 操作原因，至少5字符，保存到审计历史，不物理删除业务记录。 |
+| `expected_version` | 是 | integer | 最小=1.0 | 当前任务version，版本变化409。 |
+| `assignee_id` | 是 | string | — | 本项目OWNER或EDITOR的用户ID。 |
+| `due_date` | 否 | string (date) / null | — | 新整改期限，空表示取消期限；不会更改已有复核结论。 |
+
+```json
+{
+  "note": "示例",
+  "expected_version": 1,
+  "assignee_id": "示例",
+  "due_date": "2026-10-19"
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 整改任务 ID。 |
+| `issue_id` | string | 对应的审查问题 ID。 |
+| `requirement_id` | string | 逻辑要求 ID，新修订仍沿用此关系。 |
+| `assignee_id` | string | 整改负责人。 |
+| `due_date` | string (date) / null | 整改期限。 |
+| `status` | string | 持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED/CANCELLED。CANCELLED由问题撤销产生。 |
+| `effective_status` | string | 当前业务状态；已提交或已验收的结果遇到输入版本变化时为 NEEDS_RECHECK，历史状态保留。 |
+| `freshness` | string | CURRENT 或 STALE，相对于项目当前基线、材料集与 epoch。 |
+| `version` | integer | 乐观锁版本，执行下一个动作时作为 expected_version。 |
+| `current_submission` | object / null | 最近一次整改提交；尚未提交为 null。 |
+| `decisions` | 数组<object> | 此任务全部人工复核记录，按任务版本递增。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "issue_id": "示例",
+  "requirement_id": "示例",
+  "assignee_id": "示例",
+  "due_date": "2026-10-19",
+  "status": "示例",
+  "effective_status": "示例",
+  "freshness": "示例",
+  "version": 1,
+  "current_submission": {
+    "id": "示例",
+    "task_version": 1,
+    "requirement_revision_id": "示例",
+    "baseline_id": "示例",
+    "material_set_id": "示例",
+    "epoch": 1,
+    "note": "示例",
+    "evidence": [
+      {
+        "artifact_id": "示例",
+        "block_id": "示例",
+        "revision_id": "示例",
+        "document_id": "示例",
+        "document_kind": "示例",
+        "revision_sha256": "示例",
+        "page": 1,
+        "bbox": [
+          79.4,
+          159.783,
+          523.025,
+          170.283
+        ],
+        "quote": "示例",
+        "text_hash": "示例",
+        "submission_role": "示例"
+      }
+    ],
+    "submitted_by": "示例",
+    "created_at": "2026-10-19T09:00:00"
+  },
+  "decisions": [
+    {
+      "id": "示例",
+      "submission_id": "示例",
+      "decision": "示例",
+      "note": "示例",
+      "decided_by": "示例",
+      "task_version": 1,
+      "created_at": "2026-10-19T09:00:00"
+    }
+  ]
+}
+```
+
+## 57. 撤销误报问题或恢复整改
+
+`POST /api/v1/projects/{project_id}/issues/{issue_id}/lifecycle`
+
+业务场景：人工确认问题为误报或应重新处理。仅OWNER/REVIEWER，带任务version和原因。撤销后不再阻塞当前报告，恢复为TODO；均使该要求旧判断失效，必须重新判断。保留原问题、整改和复核，不自动生成满足结论。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `issue_id` | path | 是 | string | — | 问题ID，从登记或问题列表取得。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `note` | 是 | string | 最短字符数=5；最长字符数=2000 | 操作原因，至少5字符，保存到审计历史，不物理删除业务记录。 |
+| `expected_version` | 是 | integer | 最小=1.0 | 问题对应的当前任务version。 |
+| `withdrawn` | 是 | boolean | — | true明确撤销误报/无效问题；false恢复并重新进入TODO。不能直接恢复退休要求的问题。 |
+
+```json
+{
+  "note": "示例",
+  "expected_version": 1,
+  "withdrawn": false
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 人工登记的问题 ID。 |
+| `requirement_id` | string | 问题对应的逻辑要求。 |
+| `requirement_revision_id` | string | 登记问题时的要求修订，历史不覆盖。 |
+| `baseline_id` | string | 登记问题时的基线。 |
+| `material_set_id` | string | 登记问题时的材料集。 |
+| `epoch` | integer | 登记时 epoch。 |
+| `title` | string | 问题标题。 |
+| `description` | string | 人工核对的依据和缺口。 |
+| `kind` | string | 问题类型。 |
+| `severity` | string | 问题优先级。 |
+| `evidence` | 数组<object> | 登记时响应材料的来源。 |
+| `status` | string | OPEN 待整改；RESOLVED 当前版本已复核验收；NEEDS_RECHECK 旧验收已过期。 |
+| `freshness` | string | 原始问题是否仍是当前输入；旧问题历史可为 STALE，但整改可在新版本完成。 |
+| `task` | object | 对应的整改任务，一条问题只建一条任务，补件后继续使用。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "requirement_id": "示例",
+  "requirement_revision_id": "示例",
+  "baseline_id": "示例",
+  "material_set_id": "示例",
+  "epoch": 1,
+  "title": "示例",
+  "description": "示例",
+  "kind": "示例",
+  "severity": "示例",
+  "evidence": [
+    {
+      "artifact_id": "示例",
+      "block_id": "示例",
+      "revision_id": "示例",
+      "document_id": "示例",
+      "document_kind": "示例",
+      "revision_sha256": "示例",
+      "page": 1,
+      "bbox": [
+        79.4,
+        159.783,
+        523.025,
+        170.283
+      ],
+      "quote": "示例",
+      "text_hash": "示例",
+      "submission_role": "示例"
+    }
+  ],
+  "status": "示例",
+  "freshness": "示例",
+  "task": {
+    "id": "示例",
+    "issue_id": "示例",
+    "requirement_id": "示例",
+    "assignee_id": "示例",
+    "due_date": "2026-10-19",
+    "status": "示例",
+    "effective_status": "示例",
+    "freshness": "示例",
+    "version": 1,
+    "current_submission": {
+      "id": "示例",
+      "task_version": 1,
+      "requirement_revision_id": "示例",
+      "baseline_id": "示例",
+      "material_set_id": "示例",
+      "epoch": 1,
+      "note": "示例",
+      "evidence": [
+        {
+          "artifact_id": "示例",
+          "block_id": "示例",
+          "revision_id": "示例",
+          "document_id": "示例",
+          "document_kind": "示例",
+          "revision_sha256": "示例",
+          "page": 1,
+          "bbox": [
+            79.4,
+            159.783,
+            523.025,
+            170.283
+          ],
+          "quote": "示例",
+          "text_hash": "示例",
+          "submission_role": "示例"
+        }
+      ],
+      "submitted_by": "示例",
+      "created_at": "2026-10-19T09:00:00"
+    },
+    "decisions": [
+      {
+        "id": "示例",
+        "submission_id": "示例",
+        "decision": "示例",
+        "note": "示例",
+        "decided_by": "示例",
+        "task_version": 1,
+        "created_at": "2026-10-19T09:00:00"
+      }
+    ]
+  }
+}
+```
+
+## 58. 退休失效要求或恢复要求
+
+`POST /api/v1/projects/{project_id}/requirements/{requirement_id}/lifecycle`
+
+业务场景：更正取消某要求、重复录入或需恢复误退要求。仅OWNER/REVIEWER，带最新修订号和原因；先撤销该要求的问题。退休不删历史，最新清单排除该要求，旧冻结基线暂保留并提示待发布。重新发布完整基线后才改变本轮范围，恢复也须重新发布。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `requirement_id` | path | 是 | string | — | 逻辑要求ID，不是要求修订ID。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `note` | 是 | string | 最短字符数=5；最长字符数=2000 | 操作原因，至少5字符，保存到审计历史，不物理删除业务记录。 |
+| `expected_revision_no` | 是 | integer | 最小=1.0 | 当前要求的最新修订号。 |
+| `retired` | 是 | boolean | — | true退休、false恢复；须重新发布基线才改变冻结范围，未处理问题须先撤销。 |
+
+```json
+{
+  "note": "示例",
+  "expected_revision_no": 1,
+  "retired": false
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `requirement_id` | string | 逻辑要求ID。 |
+| `retired` | boolean | 操作后的退休状态。 |
+| `revision_no` | integer | 未变的最后修订号。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "requirement_id": "示例",
+  "retired": false,
+  "revision_no": 1
+}
+```
+
+## 59. 移除已交接成员的项目权限
+
+`POST /api/v1/projects/{project_id}/members/{user_id}/remove`
+
+业务场景：协作者离开项目，负责人完成任务转派后移除访问。仅OWNER，不能移除OWNER；还有未撤销任务时拒绝，已验收任务也应交接以便后续重核。立即影响后续读写权限，历史操作人和署名不删除。成员被移除后仍保留其历史署名、已上传修订和复核记录，新的请求立即按最新成员关系鉴权。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `user_id` | path | 是 | string | — | 拟移除的项目成员用户ID，不是姓名。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `note` | 是 | string | 最短字符数=5；最长字符数=2000 | 操作原因，至少5字符，保存到审计历史，不物理删除业务记录。 |
+
+```json
+{
+  "note": "示例"
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `user_id` | string | 被移除用户ID。 |
+| `removed` | boolean | true表示项目访问已撤销；历史署名仍保留。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "user_id": "示例",
+  "removed": false
+}
+```
+
+## 60. 把更正原文关联到受影响要求
+
+`POST /api/v1/projects/{project_id}/change-impacts`
+
+业务场景：收到更正文件，审查人明确哪些要求可能受影响。仅OWNER/REVIEWER，必须引用本项目AMENDMENT原文并说明原因。只递增关联要求的问题代次；该要求需先处理影响再最终判断，其余要求不因本关联失效。新基线/材料发布仍保留整体失效的保守规则。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `note` | 是 | string | 最短字符数=5；最长字符数=2000 | 操作原因，至少5字符，保存到审计历史，不物理删除业务记录。 |
+| `requirement_id` | 是 | string | — | 受更正影响的有效逻辑要求ID。创建后该要求的旧判断失效，其他要求不因此改变。 |
+| `sources` | 是 | 数组<object> | 最少项数=1；最多项数=10 | 本项目AMENDMENT更正文件中的原文块，服务端冻结引用。 |
+
+```json
+{
+  "note": "示例",
+  "requirement_id": "示例",
+  "sources": [
+    {
+      "artifact_id": "示例",
+      "block_id": "示例"
+    }
+  ]
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 201 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 更正影响记录ID。 |
+| `requirement_id` | string | 受影响逻辑要求。 |
+| `source` | 数组<object> | 由服务器冻结的更正原文/页码/摘要。 |
+| `note` | string | 关联原因。 |
+| `disposition` | string | PENDING、REVISED、NO_CHANGE或RETIRED。 |
+| `version` | integer | 并发检查版本。 |
+| `created_by` | string | 登记人ID。 |
+| `reviewed_by` | string / null | 处理人ID，待处理为空。 |
+| `review_note` | string / null | 人工处理说明。 |
+| `created_at` | string (date-time) | UTC登记时间。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "requirement_id": "示例",
+  "source": [
+    {}
+  ],
+  "note": "示例",
+  "disposition": "示例",
+  "version": 1,
+  "created_by": "示例",
+  "reviewed_by": "示例",
+  "review_note": "示例",
+  "created_at": "2026-10-19T09:00:00"
+}
+```
+
+## 61. 查看更正影响与处理记录
+
+`GET /api/v1/projects/{project_id}/change-impacts`
+
+所有项目成员可查看本项目更正原文、受影响要求和人工处理意见。待处理影响会阻止报告完成，但不会自动更改要求正文或生成整改问题。在审查前打开本清单，逐条查看更正原文与影响说明。修改要求并人工确认后记录REVISED，或写明理由记录NO_CHANGE；本查询不会自动处理任何影响，历史处置也会返回供追溯。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 更正影响记录ID。 |
+| `requirement_id` | string | 受影响逻辑要求。 |
+| `source` | 数组<object> | 由服务器冻结的更正原文/页码/摘要。 |
+| `note` | string | 关联原因。 |
+| `disposition` | string | PENDING、REVISED、NO_CHANGE或RETIRED。 |
+| `version` | integer | 并发检查版本。 |
+| `created_by` | string | 登记人ID。 |
+| `reviewed_by` | string / null | 处理人ID，待处理为空。 |
+| `review_note` | string / null | 人工处理说明。 |
+| `created_at` | string (date-time) | UTC登记时间。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+[
+  {
+    "id": "示例",
+    "requirement_id": "示例",
+    "source": [
+      {}
+    ],
+    "note": "示例",
+    "disposition": "示例",
+    "version": 1,
+    "created_by": "示例",
+    "reviewed_by": "示例",
+    "review_note": "示例",
+    "created_at": "2026-10-19T09:00:00"
+  }
+]
+```
+
+## 62. 记录更正已修订或人工确认不需修改
+
+`POST /api/v1/projects/{project_id}/change-impacts/{impact_id}/decision`
+
+仅OWNER/REVIEWER。REVISED要求最新修订已确认且包含此更正的原文出处；NO_CHANGE须写明人工判断原因。退休通过要求生命周期接口。处理后仍须按当前要求和材料重新判断，不自动沿用旧结论。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `impact_id` | path | 是 | string | — | 更正影响记录ID，从影响清单取得。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `note` | 是 | string | 最短字符数=5；最长字符数=2000 | 操作原因，至少5字符，保存到审计历史，不物理删除业务记录。 |
+| `expected_version` | 是 | integer | 最小=1.0 | 更正影响记录当前version。 |
+| `disposition` | 是 | string | 可选值=REVISED, NO_CHANGE | REVISED已依据该更正确认要求新修订；NO_CHANGE人工确认不改要求并说明原因。退休通过要求生命周期接口。 |
+
+```json
+{
+  "note": "示例",
+  "expected_version": 1,
+  "disposition": "REVISED"
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 更正影响记录ID。 |
+| `requirement_id` | string | 受影响逻辑要求。 |
+| `source` | 数组<object> | 由服务器冻结的更正原文/页码/摘要。 |
+| `note` | string | 关联原因。 |
+| `disposition` | string | PENDING、REVISED、NO_CHANGE或RETIRED。 |
+| `version` | integer | 并发检查版本。 |
+| `created_by` | string | 登记人ID。 |
+| `reviewed_by` | string / null | 处理人ID，待处理为空。 |
+| `review_note` | string / null | 人工处理说明。 |
+| `created_at` | string (date-time) | UTC登记时间。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "requirement_id": "示例",
+  "source": [
+    {}
+  ],
+  "note": "示例",
+  "disposition": "示例",
+  "version": 1,
+  "created_by": "示例",
+  "reviewed_by": "示例",
+  "review_note": "示例",
+  "created_at": "2026-10-19T09:00:00"
+}
+```
+
+## 63. 分页筛选项目资料、要求、任务或审计
+
+`GET /api/v1/projects/{project_id}/catalog/{resource}`
+
+业务场景：项目记录多时按文字和状态缩小范围，使用offset/limit分页，total为筛选后数量。所有成员可查业务清单，审计仅OWNER/REVIEWER。搜索按字面包含，排序固定；数据变化时刷新分页，不提供跨请求快照。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `resource` | path | 是 | string | 可选值=requirements, issues, documents, audit | requirements要求、issues问题任务、documents资料、audit操作记录。 |
+| `q` | query | 否 | string | 默认=；最长字符数=100 | 标题/说明中的字面关键词。 |
+| `status` | query | 否 | string | 默认=；最长字符数=30 | 要求DRAFT/CONFIRMED/RETIRED；问题TODO等任务状态；文档按kind；审计按action。 |
+| `offset` | query | 否 | integer | 默认=0；最小=0 | 从0开始的偏移。 |
+| `limit` | query | 否 | integer | 默认=20；最小=1；最大=100 | 每页条数，最大100。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `items` | 数组<object> | 权限范围内的本页数据；不同资源字段见对应业务接口。 |
+| `total` | integer | 筛选后的记录数。 |
+| `offset` | integer | 从0开始的偏移。 |
+| `limit` | integer | 本页上限，最大100。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "items": [
+    {}
+  ],
+  "total": 1,
+  "offset": 1,
+  "limit": 1
+}
+```
+
+## 64. 查看自己的密钥版本与有效会话
+
+`GET /api/v1/account`
+
+用于本人检查访问凭据和其他浏览器会话。只返回本人会话ID及到期时间，不返回密钥、令牌或其他账号信息。业务场景：更换电脑或检查账号安全时，先取得当前密钥指纹与会话清单。指纹只用于并发版本校验，不能用来登录。撤销会话与更换密钥分别调用对应写接口，本读取不延长会话有效期。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `user_id` | string | 当前实际用户ID。 |
+| `name` | string | 当前账号名称。 |
+| `key_fingerprint` | string | 当前API Key SHA256前12位，仅用于核对版本。 |
+| `sessions` | 数组<object> | 有效会话列表，只包含ID、到期时间与是否当前浏览器，不含令牌。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "user_id": "示例",
+  "name": "示例",
+  "key_fingerprint": "示例",
+  "sessions": [
+    {}
+  ]
+}
+```
+
+## 65. 轮换本人访问密钥并撤销全部会话
+
+`POST /api/v1/account/key`
+
+业务场景：密钥到期或怀疑泄露。本人先安全保存新随机密钥，再携带当前fingerprint提交。事务内锁定账号，只存新摘要，撤销所有Cookie会话；旧密钥立即失效。幂等摘要包含新密钥的摘要而非明文，网络失败可用新密钥按同键重试。成功后必须重新登录，不修改项目角色。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `new_key` | 是 | string (password) | 最短字符数=24；最长字符数=256 | 用户已安全保存的新随机密钥，仅通过请求发送；数据库只存SHA256，不写幂等响应、审计或浏览器存储。 |
+| `expected_fingerprint` | 是 | string | 最短字符数=12；最长字符数=12 | 账号设置显示的当前密钥摘要前12位，防止并发轮换覆盖。不是登录凭据。 |
+
+```json
+{
+  "new_key": "示例",
+  "expected_fingerprint": "示例"
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `completed` | boolean | 请求动作已完成。 |
+| `login_required` | boolean | 是否需要用新密钥重新登录。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "completed": false,
+  "login_required": false
+}
+```
+
+## 66. 撤销本人的一个浏览器会话
+
+`POST /api/v1/account/sessions/{session_id}/revoke`
+
+本人在账号设置撤销遗留设备会话。不能撤销其他人的会话；重复撤销返回404。操作立即影响下一次认证，若撤销当前会话则需要重新登录。无需改变API Key。请先读取账号安全清单，确认目标会话ID；撤销其他设备不会退出当前设备，撤销当前设备后应返回登录页面。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `session_id` | path | 是 | string | — | 本人有效会话ID，从账号安全接口取得，不是Cookie令牌。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `completed` | boolean | 请求动作已完成。 |
+| `login_required` | boolean | 是否需要用新密钥重新登录。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "completed": false,
+  "login_required": false
+}
+```
+
+## 67. 查看本人仍有项目权限的站内通知
+
+`GET /api/v1/notifications`
+
+任务指派、提交复核、复核结果和审查输入变化的站内提醒。只显示本人且仍为项目成员的记录；被移除后不泄露项目标题。不会发送邮件、短信或第三方消息。通过offset和limit翻页，unread=true仅显示未读。点击通知前可单独标记已读；通知中的项目链接仍须重新鉴权。提醒不是任务完成或人工验收的证明。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `unread` | query | 否 | boolean | 默认=False | true仅查看未读。 |
+| `offset` | query | 否 | integer | 默认=0；最小=0 | 从0开始的偏移。 |
+| `limit` | query | 否 | integer | 默认=20；最小=1；最大=100 | 每页上限。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `items` | 数组<object> | 权限范围内的本页数据；不同资源字段见对应业务接口。 |
+| `total` | integer | 筛选后的记录数。 |
+| `offset` | integer | 从0开始的偏移。 |
+| `limit` | integer | 本页上限，最大100。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "items": [
+    {}
+  ],
+  "total": 1,
+  "offset": 1,
+  "limit": 1
+}
+```
+
+## 68. 将本人通知标记为已读
+
+`POST /api/v1/notifications/{notification_id}/read`
+
+只允许通知接收人且仍有项目权限时标记，重复标记保持原已读时间，不改变业务任务或审核结论。业务场景：用户查看过通知后消除未读标记。notification_id来自本人通知清单，不接受项目ID替代；无权访问统一404。此接口不提交整改、不变更任务状态，也不会触发外部邮件或消息。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `notification_id` | path | 是 | string | — | 本人通知ID，从站内通知列表取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `completed` | boolean | 请求动作已完成。 |
+| `login_required` | boolean | 是否需要用新密钥重新登录。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "completed": false,
+  "login_required": false
+}
+```
+
+## 69. 保留DOCX原件并异步渲染为不可变PDF
+
+`POST /api/v1/projects/{project_id}/conversions`
+
+业务场景：团队使用Word编辑响应，希望在系统保留Word原件并获得固定页码的审查依据。仅OWNER/EDITOR，最多50MiB，拒绝加密、宏、过大解压与外部资源。隔离LibreOffice和字体渲染PDF，保存实际包清单/摘要，随后进入原有MinerU队列。转换202不等于解析成功；页码与坐标引用生成PDF，不声称对应Word编辑页。生成文件不自动发布为正式材料。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`multipart/form-data`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `file` | 是 | string | — | 真实DOCX容器文件；原件保留，可单独下载。 |
+| `title` | 是 | string | 最短字符数=1；最长字符数=200 | 文档显示名称。 |
+| `kind` | 是 | string | 可选值=TENDER, AMENDMENT, RESPONSE, EVIDENCE | 资料类型。 |
+| `document_id` | 否 | string / null | — | 可选的已有逻辑文档ID，用于追加新PDF修订。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 202 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 413 | 上传字节数超过配置上限，默认 50 MiB（52,428,800 字节）。分拆文件或调整服务配置。 |
+| 415 | 文件内容不符合接口要求。PDF接口需要真实PDF字节，DOCX须使用转换接口并通过容器、宏和外部资源检查；更改扩展名无效。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | DOCX转换记录ID，原DOCX永久绑定此记录。 |
+| `job_id` | string | 转换任务ID；成功后PDF仍须继续后台解析。 |
+| `status` | string | 转换任务状态，不代表解析或业务审核完成。 |
+| `revision_id` | string / null | 完成后生成的PDF修订ID；未完成为空。 |
+| `document_id` | string / null | 完成后逻辑文档ID，或追加目标文档。 |
+| `title` | string | 文档名称。 |
+| `error_detail` | string / null | 安全的转换失败提示。 |
+| `runtime` | object | 转换器/字体包清单与生成PDF摘要，用于追溯分页，不包含密钥。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "job_id": "示例",
+  "status": "示例",
+  "revision_id": "示例",
+  "document_id": "示例",
+  "title": "示例",
+  "error_detail": "示例",
+  "runtime": {}
+}
+```
+
+## 70. 查看最近的DOCX转换状态和PDF修订
+
+`GET /api/v1/projects/{project_id}/conversions`
+
+本项目成员查看最近100条转换记录；完成后在资料列表找到新PDF修订，核对版式与原文，再明确发布正式材料。业务场景：Word上传202后跟踪转换进展。SUCCEEDED仅表示固定版式PDF已产生，随后仍需查看资料页解析任务。转换失败保留DOCX原件，可检查环境后明确重试；不会自动替换正式材料或沿用旧判断。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | DOCX转换记录ID，原DOCX永久绑定此记录。 |
+| `job_id` | string | 转换任务ID；成功后PDF仍须继续后台解析。 |
+| `status` | string | 转换任务状态，不代表解析或业务审核完成。 |
+| `revision_id` | string / null | 完成后生成的PDF修订ID；未完成为空。 |
+| `document_id` | string / null | 完成后逻辑文档ID，或追加目标文档。 |
+| `title` | string | 文档名称。 |
+| `error_detail` | string / null | 安全的转换失败提示。 |
+| `runtime` | object | 转换器/字体包清单与生成PDF摘要，用于追溯分页，不包含密钥。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+[
+  {
+    "id": "示例",
+    "job_id": "示例",
+    "status": "示例",
+    "revision_id": "示例",
+    "document_id": "示例",
+    "title": "示例",
+    "error_detail": "示例",
+    "runtime": {}
+  }
+]
+```
+
+## 71. 下载转换前的DOCX原件
+
+`GET /api/v1/projects/{project_id}/conversions/{conversion_id}/original`
+
+项目成员下载原DOCX，先校验摘要。正式引用的坐标仍指向生成PDF；下载源文件不会修改任何版本。业务场景：编写人下载原始Word继续编辑。conversion_id来自转换列表；下载只返回该记录冻结的源字节，不包含后续编辑内容，不能用Word当前分页替代PDF页码。校验失败返回503，拒绝提供来源不一致的原件。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `conversion_id` | path | 是 | string | — | DOCX转换记录ID，不是生成的PDF修订ID。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+| 422 | Validation Error |
+
+## 72. 明确重试失败的DOCX转换
+
+`POST /api/v1/projects/{project_id}/conversions/{conversion_id}/retry`
+
+仅OWNER/EDITOR。失败后检查文件与Worker，再明确重试；复用已冻结的中间PDF检查点，避免重渲染的时间元数据导致幂等冲突。活动和完成任务不重复启动。失败重试仍需当前项目编辑权限，不授予原提交人已经失去的权限。成功后由人核对生成PDF和解析文字，再选择本轮材料。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `conversion_id` | path | 是 | string | — | DOCX转换记录ID，不是生成的PDF修订ID。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | DOCX转换记录ID，原DOCX永久绑定此记录。 |
+| `job_id` | string | 转换任务ID；成功后PDF仍须继续后台解析。 |
+| `status` | string | 转换任务状态，不代表解析或业务审核完成。 |
+| `revision_id` | string / null | 完成后生成的PDF修订ID；未完成为空。 |
+| `document_id` | string / null | 完成后逻辑文档ID，或追加目标文档。 |
+| `title` | string | 文档名称。 |
+| `error_detail` | string / null | 安全的转换失败提示。 |
+| `runtime` | object | 转换器/字体包清单与生成PDF摘要，用于追溯分页，不包含密钥。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "job_id": "示例",
+  "status": "示例",
+  "revision_id": "示例",
+  "document_id": "示例",
+  "title": "示例",
+  "error_detail": "示例",
+  "runtime": {}
+}
+```
+
+## 73. 确认辅助检查的模型与内容处理目的地
+
+`GET /api/v1/assistant/config`
+
+已有账号可读，不返回密钥。发起问答/逐项检查前，必须显示模型服务来源并由操作者明确确认允许发送本次片段。配置完整不等于模型兼容或语义效果已验证。业务场景：进入辅助检查前说明哪些内容会发往哪个服务。网页使用配置指纹和本次勾选许可发起任务，配置变化要求重新确认；查询不探测云模型，不产生推理费用。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `configured` | boolean | 是否具备完整模型配置，不代表实际联网验证已通过。 |
+| `model` | string / null | 配置的模型名。 |
+| `provider_origin` | string / null | 将接收本次内容的模型服务来源。 |
+| `config_fingerprint` | string / null | 非密钥配置摘要，发起任务时回传。 |
+| `reason` | string / null | 未配置原因；无密钥内容。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "configured": false,
+  "model": "示例",
+  "provider_origin": "示例",
+  "config_fingerprint": "示例",
+  "reason": "示例"
+}
+```
+
+## 74. 异步生成有引用的证据问答或逐项检查建议
+
+`POST /api/v1/projects/{project_id}/assistant-runs`
+
+先建好本轮正式材料索引并明确模型发送许可。使用检索、结构化模型输出、引用白名单、输入复核与租约发布的有界步骤；最多3个活动任务。仅把建议写入助手记录，不生成最终满足结论。人工检查出处后，疑似问题可明确采纳为普通整改问题。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `kind` | 是 | string | 可选值=QUESTION, REQUIREMENT_CHECK | QUESTION证据问答；REQUIREMENT_CHECK针对当前要求生成审查建议，后者仅负责人/审查人。 |
+| `question` | 否 | string | 默认=；最长字符数=400 | 证据问答的问题；逐项检查时由服务器读取完整要求，不能伪造要求正文。 |
+| `requirement_revision_id` | 否 | string / null | — | 逐项检查时本轮基线里的要求修订ID。 |
+| `expected_epoch` | 是 | integer | 最小=0.0 | 页面当前审查输入版本。 |
+| `expected_material_set_id` | 是 | string | — | 当前正式材料集ID。 |
+| `consent` | 是 | boolean | — | 明确允许把本次问题/要求及选定响应片段发送到已显示的模型服务。 |
+| `config_fingerprint` | 是 | string | — | GET助手配置返回的配置摘要，目的地/模型变化时需重新确认。 |
+
+```json
+{
+  "kind": "QUESTION",
+  "question": "",
+  "requirement_revision_id": "示例",
+  "expected_epoch": 1,
+  "expected_material_set_id": "示例",
+  "consent": true,
+  "config_fingerprint": "示例"
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 202 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 助手任务ID，不是问题或人工审核结论。 |
+| `job_id` | string | 后台执行任务ID，202后继续轮询。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "job_id": "示例"
+}
+```
+
+## 75. 查看辅助建议及输入过期状态
+
+`GET /api/v1/projects/{project_id}/assistant-runs`
+
+项目成员查看最近记录，区分任务执行成功、业务输入有效与人工采纳。证据和建议历史保留；材料或要求变化后旧结果标为STALE。业务场景：追踪排队任务并查看已生成分析、证据与错误提示。结果中的来源链接指向不可变PDF，模型分析不会覆盖人工作业记录；STALE记录保留供追溯，应使用当前输入重新检查。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `limit` | query | 否 | integer | 默认=30；最小=1；最大=100 | 最近记录条数。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 助手记录ID。 |
+| `job_id` | string | 后台任务ID。 |
+| `status` | string | 任务状态；SUCCEEDED只表示建议生成成功。 |
+| `kind` | string | QUESTION或REQUIREMENT_CHECK。 |
+| `question` | string | 冻结的问题或完整要求。 |
+| `requirement_revision_id` | string / null | 逐项检查绑定的要求修订。 |
+| `sources` | 数组<object> | 冻结的服务器检索证据，S序号映射到PDF版本、页码和原文。 |
+| `result` | object | output.verdict/answer/citations、usage及配置profile；不是最终决定。 |
+| `freshness` | string | CURRENT或STALE；输入/问题代次变化后不能采纳旧建议。 |
+| `error_detail` | string / null | 安全的失败提示，不返回模型原始错误体。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+[
+  {
+    "id": "示例",
+    "job_id": "示例",
+    "status": "示例",
+    "kind": "示例",
+    "question": "示例",
+    "requirement_revision_id": "示例",
+    "sources": [
+      {}
+    ],
+    "result": {},
+    "freshness": "示例",
+    "error_detail": "示例"
+  }
+]
+```
+
+## 76. 取消或明确重试辅助检查
+
+`POST /api/v1/projects/{project_id}/assistant-runs/{run_id}/control`
+
+负责人或任务发起人可取消活动任务，立即递增租约隔离迟到结果；无法撤回已经发送的云请求。失败重试须输入仍有效且模型配置相同，继续使用冻结证据，不重新编造上下文。完成记录不能取消。请求须携带当前expected_status和幂等键，避免并发取消覆盖已完成结果。取消后旧Worker不得发布结果，重试不代表已通过模型或人工检查。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `run_id` | path | 是 | string | — | 辅助建议运行记录ID，不是后台job_id。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `action` | 是 | string | 可选值=CANCEL, RETRY | 取消活动任务或重试失败任务；不能撤销已发送的外部网络请求。 |
+| `expected_status` | 是 | string | — | 当前看到的任务状态，变化409。 |
+
+```json
+{
+  "action": "CANCEL",
+  "expected_status": "示例"
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 助手记录ID。 |
+| `job_id` | string | 后台任务ID。 |
+| `status` | string | 任务状态；SUCCEEDED只表示建议生成成功。 |
+| `kind` | string | QUESTION或REQUIREMENT_CHECK。 |
+| `question` | string | 冻结的问题或完整要求。 |
+| `requirement_revision_id` | string / null | 逐项检查绑定的要求修订。 |
+| `sources` | 数组<object> | 冻结的服务器检索证据，S序号映射到PDF版本、页码和原文。 |
+| `result` | object | output.verdict/answer/citations、usage及配置profile；不是最终决定。 |
+| `freshness` | string | CURRENT或STALE；输入/问题代次变化后不能采纳旧建议。 |
+| `error_detail` | string / null | 安全的失败提示，不返回模型原始错误体。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "job_id": "示例",
+  "status": "示例",
+  "kind": "示例",
+  "question": "示例",
+  "requirement_revision_id": "示例",
+  "sources": [
+    {}
+  ],
+  "result": {},
+  "freshness": "示例",
+  "error_detail": "示例"
+}
+```
+
+## 77. 人工编辑并采纳疑似问题为整改任务
+
+`POST /api/v1/projects/{project_id}/assistant-runs/{run_id}/adopt`
+
+仅OWNER/REVIEWER。只接受当前逐项检查的疑似问题/证据不足建议，必须人工选择问题类型、完整描述及负责人。引用只能来自该建议实际使用的响应证据；无法自动确认响应缺失。采纳使用既有问题/任务规则与幂等锁，不跳过独立复核或最终人工判断。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+| `run_id` | path | 是 | string | — | 辅助建议运行记录ID，不是后台job_id。 |
+| `Idempotency-Key` | header | 是 | string | 最短字符数=16；最长字符数=128 | 本次业务操作的幂等键，建议 UUID。重试保持键和请求体不变；新操作换新键。 |
+
+**请求体：`application/json`**
+
+| 字段 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|
+| `expected_epoch` | 是 | integer | 最小=0.0 | 当前工作台 epoch，保证问题登记在所见的基线和材料版本上。 |
+| `requirement_revision_id` | 是 | string | — | 当前基线中的要求修订 ID。 |
+| `title` | 是 | string | 最短字符数=1；最长字符数=200 | 问题标题。 |
+| `description` | 是 | string | 最短字符数=1；最长字符数=8000 | 人工核对依据，例如要求2小时而响应为4小时。 |
+| `kind` | 是 | string | 可选值=CONFLICT, MISSING_RESPONSE, MISSING_EVIDENCE, OTHER | 冲突、缺少响应、缺少证明或其他。 |
+| `severity` | 是 | string | 可选值=HIGH, MEDIUM, LOW | 人工标记的问题优先级。 |
+| `assignee_id` | 是 | string | — | 整改负责人 ID，必须是本项目 OWNER 或 EDITOR。 |
+| `due_date` | 否 | string (date) / null | — | 可选整改期限，格式 YYYY-MM-DD。 |
+| `evidence` | 否 | 数组<object> | 最多项数=20 | 响应证据。CONFLICT 必须附至少一处正式材料原文；缺失问题可为空并在描述中说明核对范围。 |
+
+```json
+{
+  "expected_epoch": 1,
+  "requirement_revision_id": "示例",
+  "title": "响应时限与招标要求冲突",
+  "description": "示例",
+  "kind": "CONFLICT",
+  "severity": "HIGH",
+  "assignee_id": "示例",
+  "due_date": "2026-10-19",
+  "evidence": [
+    {
+      "artifact_id": "示例",
+      "block_id": "示例"
+    }
+  ]
+}
+```
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 409 | 幂等键内容冲突，或要求修订/任务状态/epoch 已变化。刷新工作台和任务并重新核对；重试沿用原键原内容，新动作换新键。 |
+| 422 | 参数或请求体校验失败，例如缺少必填字段、枚举值错误、分页超界、幂等键长度不符或名称为纯空白。查看 detail 中的 loc 和 msg。 |
+| 503 | 依赖暂时不可用。就绪检查可能是数据库/表不可用；原件下载可能是数据库记录存在但文件缺失。 |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 人工登记的问题 ID。 |
+| `requirement_id` | string | 问题对应的逻辑要求。 |
+| `requirement_revision_id` | string | 登记问题时的要求修订，历史不覆盖。 |
+| `baseline_id` | string | 登记问题时的基线。 |
+| `material_set_id` | string | 登记问题时的材料集。 |
+| `epoch` | integer | 登记时 epoch。 |
+| `title` | string | 问题标题。 |
+| `description` | string | 人工核对的依据和缺口。 |
+| `kind` | string | 问题类型。 |
+| `severity` | string | 问题优先级。 |
+| `evidence` | 数组<object> | 登记时响应材料的来源。 |
+| `status` | string | OPEN 待整改；RESOLVED 当前版本已复核验收；NEEDS_RECHECK 旧验收已过期。 |
+| `freshness` | string | 原始问题是否仍是当前输入；旧问题历史可为 STALE，但整改可在新版本完成。 |
+| `task` | object | 对应的整改任务，一条问题只建一条任务，补件后继续使用。 |
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+{
+  "id": "示例",
+  "requirement_id": "示例",
+  "requirement_revision_id": "示例",
+  "baseline_id": "示例",
+  "material_set_id": "示例",
+  "epoch": 1,
+  "title": "示例",
+  "description": "示例",
+  "kind": "示例",
+  "severity": "示例",
+  "evidence": [
+    {
+      "artifact_id": "示例",
+      "block_id": "示例",
+      "revision_id": "示例",
+      "document_id": "示例",
+      "document_kind": "示例",
+      "revision_sha256": "示例",
+      "page": 1,
+      "bbox": [
+        79.4,
+        159.783,
+        523.025,
+        170.283
+      ],
+      "quote": "示例",
+      "text_hash": "示例",
+      "submission_role": "示例"
+    }
+  ],
+  "status": "示例",
+  "freshness": "示例",
+  "task": {
+    "id": "示例",
+    "issue_id": "示例",
+    "requirement_id": "示例",
+    "assignee_id": "示例",
+    "due_date": "2026-10-19",
+    "status": "示例",
+    "effective_status": "示例",
+    "freshness": "示例",
+    "version": 1,
+    "current_submission": {
+      "id": "示例",
+      "task_version": 1,
+      "requirement_revision_id": "示例",
+      "baseline_id": "示例",
+      "material_set_id": "示例",
+      "epoch": 1,
+      "note": "示例",
+      "evidence": [
+        {
+          "artifact_id": "示例",
+          "block_id": "示例",
+          "revision_id": "示例",
+          "document_id": "示例",
+          "document_kind": "示例",
+          "revision_sha256": "示例",
+          "page": 1,
+          "bbox": [
+            79.4,
+            159.783,
+            523.025,
+            170.283
+          ],
+          "quote": "示例",
+          "text_hash": "示例",
+          "submission_role": "示例"
+        }
+      ],
+      "submitted_by": "示例",
+      "created_at": "2026-10-19T09:00:00"
+    },
+    "decisions": [
+      {
+        "id": "示例",
+        "submission_id": "示例",
+        "decision": "示例",
+        "note": "示例",
+        "decided_by": "示例",
+        "task_version": 1,
+        "created_at": "2026-10-19T09:00:00"
+      }
+    ]
+  }
+}
+```
+
+## 78. 查看本项目后台任务与检索容量
+
+`GET /api/v1/projects/{project_id}/operations`
+
+仅OWNER。返回按任务类型/状态统计的任务数、逻辑修订字节总数、历史索引和片段数量，以及启用的功能。字节总数可能重复计入相同内容，不代表物理磁盘用量。模型configured仅表示配置完整，不会发起付费探测；服务健康由Docker healthcheck核对。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+**成功返回字段**（数组接口描述的是每一个元素）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+
+**格式示例**：以下示例 ID 需要替换为实际值，不代表现有数据库记录。
+
+```json
+null
+```
+
+## 79. 读取本项目可监控的计数指标
+
+`GET /api/v1/projects/{project_id}/operations/metrics`
+
+仅OWNER，需正常认证，可由内部采集程序读取Prometheus文本格式的任务/片段计数。无项目名称、用户信息、文件正文或密钥；不代表吞吐量/延迟或生产可用率。业务场景：负责人为内部监控采集数量趋势。指标按当前认证项目隔离，采集方必须保存自己的时间序列才能观察变化；本接口仅输出即时计数，不附带公开无认证地址。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 403 | 当前成员角色不能执行该动作、尝试复核自己的整改，或 Cookie 写请求缺少本站 Origin。具体条件见各接口。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+## 80. 导出含冻结依据的JSON审查快照
+
+`GET /api/v1/projects/{project_id}/review-report/export.json`
+
+项目成员导出当前报告、要求基线、正式材料与引文摘要，供系统间归档。保留未完成项，不将模型建议写成人工结论；不包含密钥或Cookie。此时点快照不会阻止后续版本变更。业务场景：项目归档或外部工具处理，使用本文件保留本轮依据。下载文件需要受保护存储；PDF原件仍通过带权限的原件接口取得，导出不会扩大任何项目的访问范围。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+## 81. 导出逐项覆盖清单CSV
+
+`GET /api/v1/projects/{project_id}/review-report/export.csv`
+
+项目成员导出便于表格筛选的要求标题、状态、未解决数和人工意见。UTF8 BOM，危险公式开头加单引号以便Excel安全打开；完整原文与版本见JSON/Markdown。业务场景：团队在表格中整理未核对项。CSV只用于浏览和归档，不提供批量导回或覆盖审核结论的能力；请以当前工作台版本和有出处的人工判断为准。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
+
+## 82. 打开可打印及保存PDF的报告版式
+
+`GET /api/v1/projects/{project_id}/review-report/print`
+
+项目成员打开专用打印页面，再使用浏览器打印/另存PDF。服务器返回HTML而非已生成PDF，标题、意见和引文均转义，不执行文档脚本。报告保留当前完成状态和来源摘要。业务场景：项目成员准备纸质或PDF交付件。使用浏览器打印后检查分页与字体，生成件是下载时点的报告，后续材料变化不会更新已保存文件；需要新版本时重新导出。
+
+**认证**：使用 `X-API-Key` 或浏览器登录 Cookie；Cookie 写入还须同源 `Origin`。
+
+**参数说明**
+
+| 名称 | 位置 | 必填 | 类型 | 限制/默认 | 说明 |
+|---|---|---|---|---|---|
+| `project_id` | path | 是 | string | — | 投标项目 ID，从创建项目接口取得。 |
+
+**HTTP 返回**
+
+| 状态码 | 含义 |
+|---|---|
+| 200 | Successful Response |
+| 401 | 缺少或无效的 API Key，或浏览器会话已撤销/过期。网页重新登录；接口客户端通过 X-API-Key 认证。 |
+| 404 | 对象不存在，或当前用户没有项目访问权限。检查 ID 和所属项目；两种情况都使用 404。 |
+| 422 | Validation Error |
 
 ## 状态和常见问题速查
 

@@ -6,9 +6,15 @@
   <meta name="description" content="用一个三分钟的真实操作流程，体验投标文件比对、整改与复核。">
   <title>核标 · 投标文件检查台</title>
   <link rel="stylesheet" href="/assets/app.css?v=0.3.0">
-  <script src="/assets/app.js?v=0.3.0" defer></script>
+  <link rel="stylesheet" href="/assets/demo-theme.css?v=1.0.0">
+  <script src="/assets/demo-core.js?v=1.0.0" defer></script>
+  <script src="/assets/demo-workbench.js?v=1.0.0" defer></script>
+  <script src="/assets/demo-collaboration.js?v=1.0.0" defer></script>
+  <script src="/assets/demo-view.js?v=1.0.0" defer></script>
+  <script src="/assets/demo-events.js?v=1.0.0" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="核标首页"><span class="brand-mark">核</span><span>核标<small>投标文件检查台</small></span></a>
     <div class="workspace-label">产品体验空间 <span class="tiny-tag">MVP</span></div>
@@ -26,7 +32,7 @@
       <div class="breadcrumb">产品体验 <span>/</span> <strong>城市服务平台运维项目</strong></div>
       <div class="header-actions"><a href="/workspace" class="text-button">我的项目 →</a><span class="demo-label"><i></i> 本地演示</span><button type="button" class="text-button" id="reset">重新体验 ↻</button></div>
     </header>
-    <main id="main" aria-busy="true">
+    <main id="main" tabindex="-1" aria-busy="true">
       <section class="welcome"><span class="eyebrow">从一处具体差异开始</span><h1>投标文件，到底在检查什么？</h1><p>对方提出服务要求，你提交一份方案。先把双方的承诺放在一起，再决定哪里需要修改。</p><div class="loading-line">正在准备演示入口…</div></section>
     </main>
     <footer class="page-footer">核标 MVP · 本次体验使用人工构造文件与预设差异，未接入 AI 自动审查。</footer>

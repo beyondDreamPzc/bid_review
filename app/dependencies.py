@@ -32,7 +32,7 @@ def authenticated_user(request: Request, db: DB, key: Annotated[str | None, Depe
             user = db.get(User, session.user_id)
             if request.method not in {"GET", "HEAD", "OPTIONS"}:
                 same_origin(request)
-    if user is None:
+    if user is None or user.disabled:
         raise HTTPException(401, "A valid API key or browser session is required")
     return user
 

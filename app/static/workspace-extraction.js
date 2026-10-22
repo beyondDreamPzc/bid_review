@@ -13,7 +13,7 @@ function aiFiles() {
 
 function extractionView() {
   return `<section class="panel"><h2>从招标原文整理要求候选</h2><p class="muted">选择已核对文字可用的页面，后台生成有出处的建议，再由人修改和采纳。</p>
-    <div id="ai-body"><p class="muted">正在读取模型配置与抽取记录…</p></div></section>`;
+    <div id="ai-body">${skeleton("正在读取模型配置与抽取记录")}</div></section>`;
 }
 
 async function loadExtractionView() {
@@ -39,7 +39,7 @@ async function loadExtractionView() {
       <div class="heading"><h2>逐项人工核对候选</h2><button class="small" data-ai-refresh="true">刷新任务与候选</button></div><div id="ai-candidates"></div>`;
     renderAiRun();renderAiCandidates();scheduleAiPoll();
   } catch(error) {
-    if(sequence===aiSequence&&$("#ai-body"))$("#ai-body").innerHTML=`<div class="hint warning">抽取信息未能读取，请刷新项目重试。未生成任何模拟结果。</div>`;
+    if(sequence===aiSequence&&$("#ai-body"))$("#ai-body").innerHTML=failureState("未能读取模型候选信息，请重新读取。");
     notice(explain(error),true);
   }
 }

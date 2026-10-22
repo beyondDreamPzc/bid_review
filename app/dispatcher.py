@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def send_job(job_id):
     with SessionLocal() as db:
         job=db.get(Job,job_id)
-        queue="retrieve" if job and job.kind=="MATERIAL_INDEX" else "extract" if job and job.kind=="REQUIREMENT_EXTRACTION" else "parse"
+        queue={"MATERIAL_INDEX":"retrieve","REQUIREMENT_EXTRACTION":"extract","ASSISTANT_REVIEW":"extract","DOCX_CONVERT":"convert"}.get(job.kind if job else "","parse")
     execute_job.apply_async(args=[job_id],queue=queue,retry=False)
 
 

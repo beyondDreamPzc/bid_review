@@ -13,6 +13,7 @@ class RetrievalUnavailable(RuntimeError):
 
 class Milvus:
     def __init__(self, settings):
+        self.collection=COLLECTION
         self.url = settings.milvus_url.rstrip("/")
         self.token = settings.milvus_token.get_secret_value()
 
@@ -23,7 +24,7 @@ class Milvus:
                 headers["Authorization"] = "Bearer " + self.token
             with httpx.Client(timeout=25, trust_env=False, follow_redirects=False) as client:
                 result = client.post(self.url + "/v2/vectordb/" + operation,
-                    json={"collectionName": COLLECTION, **body}, headers=headers)
+                    json={"collectionName": self.collection, **body}, headers=headers)
                 result.raise_for_status()
                 payload = result.json()
                 if payload.get("code") != 0:

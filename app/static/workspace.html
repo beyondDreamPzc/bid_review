@@ -5,17 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="上传自己的招标与响应资料，逐项人工核对、整改和独立复核。">
   <title>我的项目 · 核标</title>
-  <link rel="stylesheet" href="/assets/workspace.css?v=0.8.0">
-  <link rel="stylesheet" href="/assets/workspace-quality.css?v=0.5.0">
-  <script src="/assets/workspace-quality.js?v=0.5.0" defer></script>
-  <script src="/assets/workspace-extraction.js?v=0.6.0" defer></script>
-  <script src="/assets/workspace-retrieval.js?v=0.8.0" defer></script>
-  <script src="/assets/workspace.js?v=0.8.0" defer></script>
+  <link rel="stylesheet" href="/assets/workspace-quality.css?v=1.0.0">
+  <link rel="stylesheet" href="/assets/workspace-theme.css?v=1.0.0">
+  <script src="/assets/workspace-core.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-ui.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-evidence.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-materials.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-files.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-requirements.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-review.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-task-board.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-report.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-members.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-quality.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-extraction.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-retrieval.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-assistant.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-management.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-account.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-lifecycle.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-shell.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-events.js?v=1.0.0" defer></script>
+  <script src="/assets/workspace-router.js?v=1.0.0" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#workspace">跳到主要内容</a>
   <header class="top"><a class="brand" href="/workspace"><b>核</b><span>核标<small>我的项目工作台</small></span></a><div id="identity"></div></header>
-  <main id="workspace" aria-busy="true"><div class="empty">正在恢复登录状态…</div></main>
+  <main tabindex="-1" id="workspace" aria-busy="true"><div class="empty">正在恢复登录状态…</div></main>
   <footer>核标工作台 · MinerU 文档解析 · 正式材料证据检索 · 人工核对与独立复核</footer>
   <div id="notice" role="status" aria-live="polite" hidden></div>
+  <dialog id="workspace-dialog" aria-labelledby="dialog-title" aria-describedby="dialog-description"></dialog>
 </body>
 </html>

@@ -34,6 +34,7 @@ class NonBlank(BaseModel):
 
 
 class MemberInput(NonBlank):
+    expected_role: str|None=Field(default=None,description="修改已有角色时携带当前角色，若已被其他人修改返回409；首次添加可省略。")
     user_id: str = Field(description="已在系统中创建的用户 ID。用户可通过 /api/v1/me 查询自己的 ID。")
     role: Literal["EDITOR", "REVIEWER", "READER"] = Field(description="EDITOR 编写/整改；REVIEWER 确认要求、登记问题和复核；READER 只读。只有项目 OWNER 可设置。")
 
@@ -84,7 +85,7 @@ class BaselineInput(NonBlank):
     name: str = Field(default="要求基线", max_length=200, description="基线名称，例如首次确认版。")
     expected_epoch: int = Field(ge=0, description="工作台当前 review_epoch；版本变化后须刷新。")
     expected_current_baseline_id: str | None = Field(default=None, description="预期上一基线 ID；首次发布为 null。")
-    requirement_revision_ids: list[str] = Field(min_length=1, max_length=1000, description="当前全部要求的最新已确认修订 ID，不能遗漏、重复或包含草稿。")
+    requirement_revision_ids: list[str] = Field(min_length=0, max_length=1000, description="当前全部有效要求的最新已确认修订ID，不能遗漏、重复或包含草稿。所有要求均退休后允许发布空基线，但报告不会判定已完成。")
 
 
 class BaselineResponse(BaseModel):
@@ -185,7 +186,7 @@ class TaskResponse(BaseModel):
     requirement_id: str = Field(description="逻辑要求 ID，新修订仍沿用此关系。")
     assignee_id: str = Field(description="整改负责人。")
     due_date: date | None = Field(description="整改期限。")
-    status: str = Field(description="持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED。")
+    status: str = Field(description="持久化状态：TODO/IN_PROGRESS/SUBMITTED/ACCEPTED/RETURNED/CANCELLED。CANCELLED由问题撤销产生。")
     effective_status: str = Field(description="当前业务状态；已提交或已验收的结果遇到输入版本变化时为 NEEDS_RECHECK，历史状态保留。")
     freshness: str = Field(description="CURRENT 或 STALE，相对于项目当前基线、材料集与 epoch。")
     version: int = Field(description="乐观锁版本，执行下一个动作时作为 expected_version。")

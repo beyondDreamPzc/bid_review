@@ -1,166 +1,58 @@
-# 投标文件审查与资料协同系统
+# 核标：投标文件审查与资料协同系统
 
-当前版本 **0.8.0**：增加本轮正式材料的Milvus中文BM25证据检索，补齐冻结片段、异步索引、版本隔离、失败恢复和原文回链。工作台改为宽屏侧栏、中等横向导航、窄窗口步骤下拉，放大正文并整理上传/版本操作区域。MinerU解析、候选抽取和人工闭环继续可用。当前运行环境为本地单机Docker Compose。
+当前版本 **1.0.0，待运行验收**。把招标要求、正式响应版本、原文证据、整改与独立复核连成可追溯流程。模型提供候选与分析建议，最终判断由人完成。
 
-## 正式材料证据检索
+按用户要求，本轮不启动 Docker、不继续执行测试，新增代码只完成静态检查与接口文档导出。历史版本实测不代表本版已通过；验收步骤见 [完整启动与运维](docs/完整启动与运维.md)，完成状态见 [交付清单](docs/交付清单.md)。
 
-在“资料与版本”发布正式响应/附件后，进入“证据检索”构建索引，查询响应时限、培训等关键词，直接查看实际原文页码，再带入人工核对。参考文件及旧材料不会混入本轮结果；换材料后必须新建索引。检索使用真实Milvus2.6.6中文BM25稀疏向量，不依赖云模型密钥。
+## 已实现的业务
 
-使用和技术约束见[正式材料检索](docs/正式材料检索.md)，真实验收与界面尺寸记录见[0.8.0验收](docs/retrieval-verification.md)。这一阶段没有稠密语义检索、重排或生成式RAG问答。
+- PDF由MinerU解析；DOCX保留原件，通过独立LibreOffice/中文字体环境生成不可变PDF，再进入MinerU队列。
+- 要求录入、候选抽取、人工确认、完整基线；正式响应与附件按版本冻结，参考文件不充当满足证据。
+- Milvus关键词与本地语义向量混合召回、RRF融合、交叉编码器重排；按项目、材料及配置隔离，原文摘要与位置回链。
+- 带引用的证据问答和逐项检查建议：显示云服务目的地、逐次许可、结构化输出、引用白名单、版本再检查；人工编辑采纳才建立整改任务。
+- 问题登记、整改、他人独立复核、最终人工判断；任务转派/期限、问题撤销/恢复、要求退休/恢复、更正影响关联与处置。
+- 项目角色、成员交接、站内通知、本人密钥轮换/会话撤销、管理员CLI停用账号。
+- Markdown、JSON、CSV和浏览器打印报告；项目运行计数、安装备份/摘要核验/空目标恢复工具、历史检索投影清理。
+- 工作台项目概览、分组导航、筛选分页、URL恢复、离开未保存提醒、加载/失败/空态、键盘焦点与窄屏布局；构造演示共享视觉规范。
 
-## MinerU PDF解析
+## 启动与配置
 
-新上传默认使用 `mineru-4.0.12-flash-auto-v1`；在“资料与版本”点击“重新解析”可升级旧PDF的解析产物，无需重复上传。旧要求和正式材料仍引用原快照，新产物须重新核对质量后明确采用。解析Worker使用独立镜像和Python环境，CPU即可运行；首次OCR需下载模型。
-
-本轮已实际调用MinerU验证中文文字PDF及构造扫描页。使用、配置和坐标转换见 [MinerU解析重构](docs/MinerU解析重构.md)，结果见 [0.7.0验收](docs/mineru-verification.md)。
-
-## AI 要求候选
-
-进入项目的“AI 要求候选”，选择最新招标/更正文件中已人工核对文字可用的页面，确认模型处理目的地后生成建议。逐条回看原文、编辑并采纳，再到“整理要求”确认和发布基线。模型不会自动确认要求或判定投标响应满足。
-
-**模型默认关闭，当前未配置真实云模型。** 已验证 HTTP 契约、队列和人工采纳流程，合成测试服务不代表真实模型效果。配置变量、业务场景、8个新增接口和复现步骤见 [AI 要求候选抽取](docs/AI要求候选抽取.md)，结果见 [0.6.0 验收记录](docs/extraction-verification.md)。
-
-## 解析质量检查
-
-在项目导航点击“解析质量”，或在文件版本下点击“检查解析质量”。查看逐页提取文字和无文字/低文字量/疑似乱码/坐标异常/重叠提示，打开对应原件，明确记录文字可用、需要重处理或原件真实空白。历史记录追加保存，新修订不继承旧核对。没有提示不代表没有漏字；这些记录不直接改变业务审查结论。详见 [解析质量检查说明](docs/解析质量检查.md) 和 [0.5.0 实测](docs/quality-verification.md)。
-
-## 使用自己的项目
-
-打开 **[我的项目](http://127.0.0.1:18080/workspace)**，使用本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 登录初始负责人账号。密钥仅用于登录请求，网页不在本地存储中保存它；后续使用可撤销的 HttpOnly Cookie。详细操作见 [真实项目工作台使用说明](docs/真实项目工作台.md)。
-
-1. 创建项目，在“资料与版本”上传招标、响应或证明 PDF；等待后台解析，并打开原件检查。
-2. 在“整理要求”选择招标原文，写出一条能独立核对的要求，保存、确认，再发布全部要求。
-3. 在“资料与版本”明确选择本轮使用的响应修订及用途，发布正式材料集。
-4. 在“本轮审查”逐项阅读双方原文，保存人工判断；发现问题时登记缺口并指派整改人。
-5. 负责人修改实际 PDF，上传修订并发布新版材料，提交整改；另一位实际账号登录后复核。
-6. 整改验收后逐项最终确认，在“检查报告”查看覆盖情况并下载 Markdown。
-
-网页没有演示角色切换。协作账号通过已有 CLI 创建，由负责人在成员页按姓名查找并加入；不能复核自己的整改提交。
-
-## 先体验，三分钟看懂这个方向
-
-启动后打开 **[演示工作台](http://127.0.0.1:18080/)**，点击“开始这次文件检查”。[体验说明与实测](docs/mvp体验说明.md) 记录当前范围：
-
-1. 对照两边原文：采购方要求2小时内响应，我们的文件却承诺4小时。
-2. 登记这处问题，交给编写人陈工。
-3. 切换到陈工，开始整改，保存新的2小时响应 PDF，提交复核。
-4. 切回审查人林悦，回看原文，验收并确认本项满足。
-5. 在报告中核对、勾选剩余两项，完成本轮检查；可以下载记录。
-6. 可选：模拟响应文件又更新一稿，看看旧结论怎样保留并提示重新核对。
-
-页面不需要填写技术 ID 或 API Key。每个浏览器会话创建隔离的演示项目，Cookie 可恢复七天内的进度；“重新体验”新建样例，不删除旧数据。PDF 修订、要求来源、整改、复核和报告均写入真实后端，差异是预设演示规则，未接模型。角色切换只是此构造项目的体验功能。
-
-Compose 本机默认开启 `BID_DEMO_ENABLED=true`，普通应用配置默认关闭。正式共享部署须关闭此变量；演示 Cookie 不能操作或下载其他项目。所有本机端口仍只绑定127.0.0.1。
-
-已实现：正式材料中文BM25检索/索引重建/版本和原文校验、项目成员与角色、PDF 上传/不可变修订/幂等、MySQL 任务与 outbox、Redis/Celery 投递、租约恢复和旧 Worker 写入拦截、MinerU解析和历史探针兼容、页码/bbox 来源与原件下载、要求修订/确认/完整基线、冻结正式材料集、问题指派/整改/独立复核、逐项人工报告和审计。
-
-当前为 `review_mode=HUMAN`。新解析器为MinerU4.0.12 Flash/auto，历史`pdfplumber-probe-v1`产物仍保留。产物均为`NEEDS_REVIEW`、`formal_review_ready=false`，人工引用须回看原件。DOCX接入、稠密向量/混合召回/重排、生成式RAG、LangGraph模型审查和更正自动影响分析尚未实现。
-
-## 接口怎么使用
-
-先读 [业务流程与接口](docs/业务流程与接口.md)，用“要求2小时、响应4小时”的连续场景理解谁在什么时候调用哪个接口，再查 [55 个接口的中文使用手册](docs/API接口说明.md) 或 [Swagger](http://127.0.0.1:18080/docs)。接口均有中文业务用途、角色、前置条件、字段、状态、错误与下一步说明。
-
-顺序：认证/项目分工 → 上传 PDF 并核对原文 → 登记要求 → 确认并发布基线 → 选择正式材料 → 登记问题 → 负责人整改 → 另一人复核 → 逐项审核决定 → 报告。Swagger 的 `Try it out` 可调试，`Schema` 可查看字段中文说明。各 ID 不能混用。
-
-新材料/基线会使旧提交及审核过期；同轮发现新问题也会使该要求的原满足决定失效。没有问题记录不等于检查过，未发布要求修改也会阻止报告显示完成。
-
-`docs/openapi.json` 与接口手册从实际代码导出：`python scripts/export_api_docs.py`。实现说明见 [技术实现](docs/技术实现.md)，当前验收见 [0.8.0检索实测](docs/retrieval-verification.md)，解析验证见 [0.7.0 MinerU实测](docs/mineru-verification.md)，0.6.0见 [候选抽取实测](docs/extraction-verification.md)，历史结果见 [0.5.0 质量检查实测](docs/quality-verification.md) 和 [0.4.0 工作台实测](docs/workspace-verification.md)。
-
-## 启动
-
-需要 Docker Desktop（Linux 容器）和用于生成本地环境文件的 Python。终端进入本目录：
+在本目录执行，已有 `.env` 会保留：
 
 ```powershell
 python scripts/init_env.py
-docker compose up --build -d --wait --wait-timeout 180
-docker compose ps
+docker compose build
+docker compose up -d
+docker compose ps -a
 ```
 
-接口文档：http://127.0.0.1:18080/docs 。点击 Authorize，填入本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY`。凭据每份安装独立生成，不在仓库中提供默认公开密钥。MySQL、Redis和Milvus仅在Compose内部网络开放。Milvus使用独立命名卷及官方Standalone嵌入式存储模式。
+首次构建会安装转换器/解析依赖，首次启动下载固定版本本地语义模型与OCR模型，需网络及足够磁盘。API入口：[真实项目](http://127.0.0.1:18080/workspace)、[构造演示](http://127.0.0.1:18080/)、[Swagger](http://127.0.0.1:18080/docs)。使用本地 `.env` 中的 `BID_BOOTSTRAP_API_KEY` 登录，密钥不要提交到仓库或发到聊天。
 
-首次启动执行 Alembic 迁移及 owner 初始化。已有 `.env` 不会被覆盖。已有数据库的凭据须与首次建库时一致。
+云模型默认关闭。由用户在 `.env` 设置 `BID_LLM_ENABLED=true`、`BID_LLM_BASE_URL`、`BID_LLM_MODEL`、`BID_LLM_API_KEY`；协议及重建生效步骤见运维文档。检索本身不调用云模型。配置完整不代表供应商兼容或语义效果已验证。
 
-Compose 项目名沿用 `bid-review-phase1`，用于复用升级前的命名卷。其他账号由运维用 `python -m app.cli bootstrap --name ... --key-env ...` 创建：密钥从所指定的环境变量读取，至少24字符。每人使用自己的 API Key，负责人再添加项目角色。
+## 从资料到报告
 
-## 验证完整业务流程
+1. 建项目，上传招标/更正与响应/证明资料，等待后台完成，逐页回看原件。
+2. 手工整理或用模型生成要求候选，编辑、人工确认，再发布全部有效要求为基线。
+3. 明确采用的正式响应与附件版本；到证据检索构建本轮索引。
+4. 逐项对照要求与证据。可以检索、问答或辅助检查，发现实际缺口再登记整改与负责人。
+5. 编写人修改实际文件，上传修订，明确发布新材料，提交整改；另一位账号独立复核。
+6. 处理更正影响并逐项最终确认，查看未完成项和覆盖情况，导出本轮报告。
 
-```powershell
-docker compose exec -T api python scripts/business_smoke.py --base-url http://localhost:8000
-```
+上传新修订不会自动替换正式材料。换基线/材料会使旧判断过期；新增问题或更正关联使对应要求旧判断失效。没有问题记录不等于已审查。退休要求和撤销问题均保留历史。
 
-脚本创建构造样本项目与编写/审查账号，通过真实 HTTP、MySQL、Redis/Worker 跑通“2小时要求、4小时响应、修改为2小时、独立复核、最终确认”。四路并发登记同一问题只建一条问题和任务，最后发布新快照验证旧结论失效。运行报告 `docs/business-smoke.json` 不含明文密钥且排除在 Git 外；测试项目保留在本地库中。
+## 技术与接口
 
-## 验证真实样本
+FastAPI、Python、SQLAlchemy/Alembic、MySQL、Redis/Celery、MinerU、LibreOffice、Milvus、固定ONNX模型、可替换Chat Completions云接口、原生HTML/CSS/JavaScript、Docker Compose。使用明确有界的Python异步工作流，当前没有安装或声称使用LangGraph。
 
-样本是 2023 年上海政府采购的 65 页信息化项目招标文件，只用于历史文本和来源定位验证。仓库不附带第三方 PDF，脚本从固定公开来源下载：
+接口逐项中文解释见 [82个接口手册](docs/API接口说明.md)、[机器可读OpenAPI](docs/openapi.json)、[业务流程与接口](docs/业务流程与接口.md)。新增模块设计与实现限制见 [1.0交付说明](docs/版本1.0交付记录.md)。
 
-```powershell
-docker compose exec api python scripts/fetch_sample.py
-docker compose exec api python scripts/smoke.py --base-url http://localhost:8000
-```
+三模板构造语料和人工相关性标注位于 `evaluation/retrieval-corpus.json`；启动后由用户明确执行评测，工具输出真实结果，不预填准确率。它们不代表企业客户材料、真实上线或生产效果。
 
-第二条命令会实际创建项目并完成 API → MySQL/outbox → Redis/Celery → 来源查询；验证重复上传不会新建任务，以及原件 hash、页码和返回内容一致。容器内下载样本和报告存于该容器工作目录；需要留存时使用 `docker compose cp` 拷出。原始业务文件和解析产物另有命名卷保存。
+## 交付范围
 
-本机执行可先创建 Python 3.12 虚拟环境并安装 `requirements.lock`，然后运行同名脚本。Docker 为推荐运行方式；Celery Worker 在 Linux 容器中执行。
+交付单企业本地Compose版及可审查源码。域名/TLS、外部SSO、多组织隔离、高可用和外部消息通道需要目标环境设计与验收。更正影响是人工关联，报告是人工结论；不存在自动合规保证。
 
-## 测试与迁移
+## 历史记录
 
-```powershell
-docker compose exec api python -m pytest -q
-docker compose exec api python -m alembic current
-docker compose exec api python -m alembic check
-docker compose exec api python scripts/mysql_invariants.py
-```
-
-自动测试使用独立 SQLite 数据库检查业务不变量；真实 MySQL、Redis 和 Worker 另用集成路径验证，不能以 SQLite 单测代替 MySQL 兼容性结论。迁移在 `migrations/versions`，不得通过应用启动时 `create_all` 代替生产迁移。
-
-`docs/phase1-verification.md`、`docs/phase2-verification.md` 保留前两阶段历史结果，本轮见 `docs/mineru-verification.md`。`requirements.lock` 固定开发/测试镜像依赖；正式部署前再拆分纯运行依赖。
-
-## 目录
-
-```text
-app/main.py          HTTP 接口与项目鉴权
-app/dependencies.py  共用身份认证与请求参数
-app/business_api.py  按业务动作组织的接口
-app/business.py      基线、材料、问题整改、复核与报告规则
-app/business_schemas.py  业务字段与中文说明
-app/demo.py          隔离演示会话与业务动作适配
-app/workbench_api.py 实际账号登录、项目聚合读取、成员查找与报告导出
-app/session_auth.py  Cookie 写入同源检查
-app/quality.py       冻结文字层的逐页可解释诊断
-app/quality_api.py   质量报告及追加的人工核对历史
-app/extraction_api.py     候选抽取、恢复和人工采纳的业务接口
-app/extraction_service.py 冻结输入、质量意见和来源一致性检查
-app/extraction_jobs.py    独立extract队列、租约保护与批次检查点
-app/extraction_model.py   可配置HTTP模型适配与本地结构/引用校验
-app/static/          中文引导页面，原生HTML/CSS/JS，无前端构建依赖
-app/demo_assets/     明确标记的中文PDF构造样本
-app/services.py      上传幂等及文档版本事务
-app/models.py        核心领域表
-app/jobs.py          领取、租约、结果提交、恢复及 outbox
-app/parsers.py       按冻结profile分派，兼容历史文字层探针
-app/mineru_parser.py  隔离SDK进程、协议校验、坐标和纯文本标准化
-app/mineru_runner.py  固定MinerU4 SDK调用与安全错误类别
-app/parse_api.py      同一PDF的新配置解析和显式失败重试
-app/worker.py        Celery Worker
-app/dispatcher.py    单实例投递与恢复扫描
-migrations/          Alembic 迁移
-tests/               权限、幂等、版本、任务恢复与引用测试
-scripts/             环境初始化、公开样本下载与端到端验证
-docs/                实测结果与后续任务
-```
-
-## 当前运行约定
-
-- 时间入库使用 UTC；对外界面后续按用户时区转换。
-- v1 只有单实例 dispatcher；并发扩容前需验证批量领取公平性、索引与恢复时延。
-- 原件、解析产物和 source ID 不原位覆盖；新解析器使用新 profile。
-- 技术解析、候选建议与业务判断分开；满足/有问题/不适用均由人明确记录，模型只可辅助整理要求候选。
-- 本地端口只绑定 127.0.0.1；正式共享部署前配置 HTTPS、组织身份认证和配额。
-- 单机 Compose 只验证进程恢复，不提供高可用和磁盘故障零丢失承诺。
-- 当前无任务转派、问题撤销、要求退休/删除和自动通知；已有任务的负责人须保留 EDITOR 权限。新输入暂按全项目失效，尚无局部影响分析。
-- `.env`、业务文件、运行报告、IDE 配置不入 Git。`python scripts/package_source.py` 可生成排除这些内容的源码包。
-
-演示 PDF 是仓库内的固定构造素材，不是业务原件。重新生成仅开发时需要 reportlab==4.4.9，运行 `python scripts/build_demo_assets.py`；应用运行本身不依赖 ReportLab。
-
-停止服务使用 `docker compose stop`，保留命名卷。不要在未备份业务数据时使用带 `-v` 的删除命令。
+[0.8检索实测](docs/retrieval-verification.md)、[0.7 MinerU实测](docs/mineru-verification.md)、[0.6候选抽取实测](docs/extraction-verification.md)、[0.5质量检查](docs/quality-verification.md)、[0.4工作台](docs/workspace-verification.md) 仅说明相应历史版本。源码打包：`python -m scripts.package_source`，排除密钥、数据、模型权重和缓存。
