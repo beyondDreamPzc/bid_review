@@ -53,6 +53,10 @@ FastAPI、Python、SQLAlchemy/Alembic、MySQL、Redis/Celery、MinerU、LibreOff
 
 交付单企业本地Compose版及可审查源码。域名/TLS、外部SSO、多组织隔离、高可用和外部消息通道需要目标环境设计与验收。更正影响是人工关联，报告是人工结论；不存在自动合规保证。
 
+## 面试准备
+
+[面试问题集：50题、参考回答、追问与代码位置](docs/面试问题集.md)；[面试故事集：介绍口述稿与10个实现故事](docs/面试故事集.md)；[项目介绍与负责范围](docs/项目介绍与负责范围.md)。内容依据当前实现，区分工程设计、代码交付和实际验证结果。
+
 ## 历史记录
 
 [0.8检索实测](docs/retrieval-verification.md)、[0.7 MinerU实测](docs/mineru-verification.md)、[0.6候选抽取实测](docs/extraction-verification.md)、[0.5质量检查](docs/quality-verification.md)、[0.4工作台](docs/workspace-verification.md) 仅说明相应历史版本。源码打包：`python -m scripts.package_source`，排除密钥、数据、模型权重和缓存。
